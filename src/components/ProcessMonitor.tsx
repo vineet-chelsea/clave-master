@@ -37,7 +37,7 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
   const [currentStep, setCurrentStep] = useState(0);
   const [stepProgress, setStepProgress] = useState(0);
   const [currentPressure, setCurrentPressure] = useState(0);
-  const [currentTemperature, setCurrentTemperature] = useState(75);
+  const [currentTemperature, setCurrentTemperature] = useState(25);
   const [sessionId, setSessionId] = useState<string>('');
   const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
   const { toast } = useToast();
@@ -125,9 +125,9 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
         return prev + (diff * 0.05); // Gradually approach target
       });
 
-      // Simulate temperature changes
+      // Simulate temperature changes (Celsius)
       setCurrentTemperature((prev) => {
-        const targetTemp = 120 + (targetPressure * 2);
+        const targetTemp = 50 + (targetPressure * 1.5); // Celsius range
         const diff = targetTemp - prev;
         return prev + (diff * 0.03);
       });
@@ -259,10 +259,10 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
               <p className="text-7xl font-bold text-primary">
                 {currentTemperature.toFixed(1)}
               </p>
-              <p className="text-2xl text-muted-foreground mt-2">°F</p>
+              <p className="text-2xl text-muted-foreground mt-2">°C</p>
               <div className="mt-6">
                 <p className="text-xs text-muted-foreground mb-2">Operating Temperature</p>
-                <Progress value={(currentTemperature / 250) * 100} className="h-2" />
+                <Progress value={(currentTemperature / 150) * 100} className="h-2" />
               </div>
             </div>
           </Card>
@@ -320,8 +320,8 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
                 <YAxis 
                   stroke="#888"
                   tick={{ fill: '#888' }}
-                  domain={[0, 250]}
-                  label={{ value: '°F', angle: -90, position: 'insideLeft', fill: '#888' }}
+                  domain={[0, 150]}
+                  label={{ value: '°C', angle: -90, position: 'insideLeft', fill: '#888' }}
                 />
                 <Tooltip 
                   contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #333' }}
@@ -334,7 +334,7 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
                   stroke="#f59e0b" 
                   strokeWidth={2}
                   dot={false}
-                  name="Temperature (°F)"
+                  name="Temperature (°C)"
                 />
               </LineChart>
             </ResponsiveContainer>

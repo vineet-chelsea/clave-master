@@ -71,7 +71,7 @@ const Index = () => {
           onBack={() => setMode('selection')}
           onStartProgram={handleStartProgram}
           currentPressure={0}
-          currentTemperature={75}
+          currentTemperature={25}
         />
       )}
       
@@ -87,7 +87,7 @@ const Index = () => {
           onBack={() => setMode('selection')}
           onStart={handleManualStart}
           currentPressure={0}
-          currentTemperature={75}
+          currentTemperature={25}
         />
       )}
 
