@@ -2,9 +2,10 @@ import { useState } from "react";
 import { ModeSelection } from "@/components/ModeSelection";
 import { ProgramSelection } from "@/components/ProgramSelection";
 import { ProcessMonitor } from "@/components/ProcessMonitor";
+import { ManualControl } from "@/components/ManualControl";
 import { useToast } from "@/hooks/use-toast";
 
-type AppMode = 'selection' | 'auto-program' | 'auto-running' | 'manual';
+type AppMode = 'selection' | 'auto-program' | 'auto-running' | 'manual-config' | 'manual-running';
 
 interface Program {
   id: string;
@@ -16,20 +17,22 @@ interface Program {
   }>;
 }
 
+interface ManualConfig {
+  targetPressure: number;
+  duration: number;
+}
+
 const Index = () => {
   const [mode, setMode] = useState<AppMode>('selection');
   const [selectedProgram, setSelectedProgram] = useState<Program | null>(null);
+  const [manualConfig, setManualConfig] = useState<ManualConfig | null>(null);
   const { toast } = useToast();
 
   const handleModeSelect = (selectedMode: 'auto' | 'manual') => {
     if (selectedMode === 'auto') {
       setMode('auto-program');
     } else {
-      setMode('manual');
-      toast({
-        title: "Manual Mode",
-        description: "Manual mode will be available in the next update",
-      });
+      setMode('manual-config');
     }
   };
 
@@ -42,9 +45,19 @@ const Index = () => {
     });
   };
 
+  const handleManualStart = (targetPressure: number, duration: number) => {
+    setManualConfig({ targetPressure, duration });
+    setMode('manual-running');
+    toast({
+      title: "Manual Process Started",
+      description: `Target: ${targetPressure} PSI for ${duration} minutes`,
+    });
+  };
+
   const handleStopProcess = () => {
     setMode('selection');
     setSelectedProgram(null);
+    setManualConfig(null);
   };
 
   return (
@@ -65,6 +78,22 @@ const Index = () => {
       {mode === 'auto-running' && selectedProgram && (
         <ProcessMonitor
           program={selectedProgram}
+          onStop={handleStopProcess}
+        />
+      )}
+
+      {mode === 'manual-config' && (
+        <ManualControl
+          onBack={() => setMode('selection')}
+          onStart={handleManualStart}
+          currentPressure={0}
+          currentTemperature={75}
+        />
+      )}
+
+      {mode === 'manual-running' && manualConfig && (
+        <ProcessMonitor
+          manualConfig={manualConfig}
           onStop={handleStopProcess}
         />
       )}

@@ -2,9 +2,10 @@ import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { Pause, StopCircle, Play, ArrowLeft } from "lucide-react";
+import { Pause, StopCircle, Play } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
 interface Program {
   id: string;
@@ -17,20 +18,40 @@ interface Program {
 }
 
 interface ProcessMonitorProps {
-  program: Program;
+  program?: Program;
+  manualConfig?: {
+    targetPressure: number;
+    duration: number;
+  };
   onStop: () => void;
 }
 
-export function ProcessMonitor({ program, onStop }: ProcessMonitorProps) {
+interface ChartDataPoint {
+  time: string;
+  pressure: number;
+  temperature: number;
+}
+
+export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitorProps) {
   const [status, setStatus] = useState<'running' | 'paused'>('running');
   const [currentStep, setCurrentStep] = useState(0);
   const [stepProgress, setStepProgress] = useState(0);
   const [currentPressure, setCurrentPressure] = useState(0);
   const [currentTemperature, setCurrentTemperature] = useState(75);
   const [sessionId, setSessionId] = useState<string>('');
+  const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
   const { toast } = useToast();
   const intervalRef = useRef<NodeJS.Timeout>();
   const logIntervalRef = useRef<NodeJS.Timeout>();
+
+  const isManualMode = !!manualConfig;
+  const programName = isManualMode ? "Manual Control" : (program?.program_name || "");
+  const programId = program?.id || null;
+
+  // Create steps array - either from program or manual config
+  const steps = isManualMode && manualConfig
+    ? [{ psi_range: `${manualConfig.targetPressure}`, duration_minutes: manualConfig.duration, action: "steady" }]
+    : (program?.steps || []);
 
   useEffect(() => {
     startSession();
@@ -54,8 +75,8 @@ export function ProcessMonitor({ program, onStop }: ProcessMonitorProps) {
     const { data, error } = await supabase
       .from('process_sessions')
       .insert({
-        program_id: program.id,
-        program_name: program.program_name,
+        program_id: programId,
+        program_name: programName,
         status: 'running'
       })
       .select()
@@ -76,7 +97,9 @@ export function ProcessMonitor({ program, onStop }: ProcessMonitorProps) {
   const startProcessSimulation = () => {
     if (intervalRef.current) clearInterval(intervalRef.current);
 
-    const step = program.steps[currentStep];
+    const step = steps[currentStep];
+    if (!step) return;
+
     const targetPressure = parseFloat(step.psi_range.split('-')[step.psi_range.includes('-') ? 1 : 0]);
     const duration = step.duration_minutes * 60; // Convert to seconds
 
@@ -85,7 +108,7 @@ export function ProcessMonitor({ program, onStop }: ProcessMonitorProps) {
         const newProgress = prev + (100 / duration);
         
         if (newProgress >= 100) {
-          if (currentStep < program.steps.length - 1) {
+          if (currentStep < steps.length - 1) {
             setCurrentStep(currentStep + 1);
             return 0;
           } else {
@@ -108,6 +131,20 @@ export function ProcessMonitor({ program, onStop }: ProcessMonitorProps) {
         const diff = targetTemp - prev;
         return prev + (diff * 0.03);
       });
+
+      // Update chart data
+      const now = new Date();
+      const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+      
+      setChartData(prev => {
+        const newData = [...prev, {
+          time: timeStr,
+          pressure: currentPressure,
+          temperature: currentTemperature
+        }];
+        // Keep only last 60 data points (1 minute of data)
+        return newData.slice(-60);
+      });
     }, 1000);
   };
 
@@ -118,8 +155,8 @@ export function ProcessMonitor({ program, onStop }: ProcessMonitorProps) {
       if (sessionId) {
         await supabase.from('process_logs').insert({
           session_id: sessionId,
-          program_id: program.id,
-          program_name: program.program_name,
+          program_id: programId,
+          program_name: programName,
           pressure: currentPressure,
           temperature: currentTemperature,
           valve_position: (currentPressure / 50) * 100, // Simulated valve position
@@ -140,7 +177,7 @@ export function ProcessMonitor({ program, onStop }: ProcessMonitorProps) {
 
     toast({
       title: "Process Complete",
-      description: `${program.program_name} completed successfully`,
+      description: `${programName} completed successfully`,
     });
   };
 
@@ -166,8 +203,8 @@ export function ProcessMonitor({ program, onStop }: ProcessMonitorProps) {
     onStop();
   };
 
-  const currentStepData = program.steps[currentStep];
-  const totalSteps = program.steps.length;
+  const currentStepData = steps[currentStep];
+  const totalSteps = steps.length;
 
   return (
     <div className="min-h-screen bg-background p-6">
@@ -177,10 +214,13 @@ export function ProcessMonitor({ program, onStop }: ProcessMonitorProps) {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-3xl font-bold text-foreground">
-                {program.program_name}
+                {programName}
               </h1>
               <p className="text-muted-foreground mt-1">
-                Step {currentStep + 1} of {totalSteps} - {currentStepData.action.toUpperCase()} to {currentStepData.psi_range} PSI
+                {isManualMode 
+                  ? `Manual Control - ${currentStepData?.psi_range} PSI for ${currentStepData?.duration_minutes} min`
+                  : `Step ${currentStep + 1} of ${totalSteps} - ${currentStepData?.action.toUpperCase()} to ${currentStepData?.psi_range} PSI`
+                }
               </p>
             </div>
             <div className={`px-6 py-3 rounded-lg font-bold text-lg ${
@@ -205,7 +245,7 @@ export function ProcessMonitor({ program, onStop }: ProcessMonitorProps) {
               </p>
               <p className="text-2xl text-muted-foreground mt-2">PSI</p>
               <div className="mt-6">
-                <p className="text-xs text-muted-foreground mb-2">Target: {currentStepData.psi_range} PSI</p>
+                <p className="text-xs text-muted-foreground mb-2">Target: {currentStepData?.psi_range} PSI</p>
                 <Progress value={(currentPressure / 50) * 100} className="h-2" />
               </div>
             </div>
@@ -228,13 +268,86 @@ export function ProcessMonitor({ program, onStop }: ProcessMonitorProps) {
           </Card>
         </div>
 
+        {/* Real-time Charts */}
+        <div className="grid md:grid-cols-2 gap-6">
+          {/* Pressure vs Time Chart */}
+          <Card className="p-6 bg-card border-border">
+            <h3 className="text-lg font-bold mb-4 text-foreground">PRESSURE vs TIME</h3>
+            <ResponsiveContainer width="100%" height={250}>
+              <LineChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                <XAxis 
+                  dataKey="time" 
+                  stroke="#888"
+                  tick={{ fill: '#888', fontSize: 12 }}
+                  interval="preserveStartEnd"
+                />
+                <YAxis 
+                  stroke="#888"
+                  tick={{ fill: '#888' }}
+                  domain={[0, 60]}
+                  label={{ value: 'PSI', angle: -90, position: 'insideLeft', fill: '#888' }}
+                />
+                <Tooltip 
+                  contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #333' }}
+                  labelStyle={{ color: '#888' }}
+                />
+                <Legend />
+                <Line 
+                  type="monotone" 
+                  dataKey="pressure" 
+                  stroke="#22c55e" 
+                  strokeWidth={2}
+                  dot={false}
+                  name="Pressure (PSI)"
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </Card>
+
+          {/* Temperature vs Time Chart */}
+          <Card className="p-6 bg-card border-border">
+            <h3 className="text-lg font-bold mb-4 text-foreground">TEMPERATURE vs TIME</h3>
+            <ResponsiveContainer width="100%" height={250}>
+              <LineChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                <XAxis 
+                  dataKey="time" 
+                  stroke="#888"
+                  tick={{ fill: '#888', fontSize: 12 }}
+                  interval="preserveStartEnd"
+                />
+                <YAxis 
+                  stroke="#888"
+                  tick={{ fill: '#888' }}
+                  domain={[0, 250]}
+                  label={{ value: '°F', angle: -90, position: 'insideLeft', fill: '#888' }}
+                />
+                <Tooltip 
+                  contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #333' }}
+                  labelStyle={{ color: '#888' }}
+                />
+                <Legend />
+                <Line 
+                  type="monotone" 
+                  dataKey="temperature" 
+                  stroke="#f59e0b" 
+                  strokeWidth={2}
+                  dot={false}
+                  name="Temperature (°F)"
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </Card>
+        </div>
+
         {/* Step Progress */}
         <Card className="p-6 bg-card border-border">
           <div className="space-y-4">
             <div className="flex justify-between items-center">
               <h2 className="text-xl font-bold text-foreground">Step Progress</h2>
               <span className="text-muted-foreground">
-                {Math.floor((currentStepData.duration_minutes * stepProgress) / 100)} / {currentStepData.duration_minutes} minutes
+                {Math.floor((currentStepData?.duration_minutes || 0) * stepProgress / 100)} / {currentStepData?.duration_minutes || 0} minutes
               </span>
             </div>
             <Progress value={stepProgress} className="h-4" />
@@ -273,45 +386,47 @@ export function ProcessMonitor({ program, onStop }: ProcessMonitorProps) {
         </div>
 
         {/* Process Timeline */}
-        <Card className="p-6 bg-card border-border">
-          <h2 className="text-xl font-bold text-foreground mb-4">Process Timeline</h2>
-          <div className="space-y-2">
-            {program.steps.map((step, idx) => (
-              <div
-                key={idx}
-                className={`flex items-center justify-between p-4 rounded ${
-                  idx === currentStep
-                    ? 'bg-primary/20 border-2 border-primary'
-                    : idx < currentStep
-                    ? 'bg-green-500/10 border border-green-500/30'
-                    : 'bg-secondary border border-border'
-                }`}
-              >
-                <div className="flex items-center gap-4">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold ${
+        {!isManualMode && (
+          <Card className="p-6 bg-card border-border">
+            <h2 className="text-xl font-bold text-foreground mb-4">Process Timeline</h2>
+            <div className="space-y-2">
+              {steps.map((step, idx) => (
+                <div
+                  key={idx}
+                  className={`flex items-center justify-between p-4 rounded ${
                     idx === currentStep
-                      ? 'bg-primary text-primary-foreground'
+                      ? 'bg-primary/20 border-2 border-primary'
                       : idx < currentStep
-                      ? 'bg-green-500 text-white'
-                      : 'bg-muted text-muted-foreground'
-                  }`}>
-                    {idx + 1}
+                      ? 'bg-green-500/10 border border-green-500/30'
+                      : 'bg-secondary border border-border'
+                  }`}
+                >
+                  <div className="flex items-center gap-4">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold ${
+                      idx === currentStep
+                        ? 'bg-primary text-primary-foreground'
+                        : idx < currentStep
+                        ? 'bg-green-500 text-white'
+                        : 'bg-muted text-muted-foreground'
+                    }`}>
+                      {idx + 1}
+                    </div>
+                    <div>
+                      <p className="font-semibold text-foreground">{step.action.toUpperCase()} - {step.psi_range} PSI</p>
+                      <p className="text-sm text-muted-foreground">{step.duration_minutes} minutes</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="font-semibold text-foreground">{step.action.toUpperCase()} - {step.psi_range} PSI</p>
-                    <p className="text-sm text-muted-foreground">{step.duration_minutes} minutes</p>
-                  </div>
+                  {idx === currentStep && (
+                    <div className="text-sm font-semibold text-primary">IN PROGRESS</div>
+                  )}
+                  {idx < currentStep && (
+                    <div className="text-sm font-semibold text-green-400">COMPLETED</div>
+                  )}
                 </div>
-                {idx === currentStep && (
-                  <div className="text-sm font-semibold text-primary">IN PROGRESS</div>
-                )}
-                {idx < currentStep && (
-                  <div className="text-sm font-semibold text-green-400">COMPLETED</div>
-                )}
-              </div>
-            ))}
-          </div>
-        </Card>
+              ))}
+            </div>
+          </Card>
+        )}
       </div>
     </div>
   );
