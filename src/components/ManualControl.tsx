@@ -97,7 +97,7 @@ export const ManualControl = ({
                 onChange={(e) => setDuration(Number(e.target.value))}
                 min={1}
                 max={480}
-                className="text-2xl font-bold h-16 bg-industrial-display border-industrial-border"
+                className="text-2xl font-bold h-16 bg-industrial-display border-industrial-border text-foreground"
               />
               <p className="text-sm text-industrial-muted">
                 Maximum: 480 minutes (8 hours)
