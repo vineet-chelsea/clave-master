@@ -3,9 +3,10 @@ import { ModeSelection } from "@/components/ModeSelection";
 import { ProgramSelection } from "@/components/ProgramSelection";
 import { ProcessMonitor } from "@/components/ProcessMonitor";
 import { ManualControl } from "@/components/ManualControl";
+import { HistoricalData } from "@/components/HistoricalData";
 import { useToast } from "@/hooks/use-toast";
 
-type AppMode = 'selection' | 'auto-program' | 'auto-running' | 'manual-config' | 'manual-running';
+type AppMode = 'selection' | 'auto-program' | 'auto-running' | 'manual-config' | 'manual-running' | 'history';
 
 interface Program {
   id: string;
@@ -28,11 +29,13 @@ const Index = () => {
   const [manualConfig, setManualConfig] = useState<ManualConfig | null>(null);
   const { toast } = useToast();
 
-  const handleModeSelect = (selectedMode: 'auto' | 'manual') => {
+  const handleModeSelect = (selectedMode: 'auto' | 'manual' | 'history') => {
     if (selectedMode === 'auto') {
       setMode('auto-program');
-    } else {
+    } else if (selectedMode === 'manual') {
       setMode('manual-config');
+    } else {
+      setMode('history');
     }
   };
 
@@ -95,6 +98,12 @@ const Index = () => {
         <ProcessMonitor
           manualConfig={manualConfig}
           onStop={handleStopProcess}
+        />
+      )}
+
+      {mode === 'history' && (
+        <HistoricalData
+          onBack={() => setMode('selection')}
         />
       )}
     </>
