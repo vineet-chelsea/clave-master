@@ -36,6 +36,7 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
   const [logs, setLogs] = useState<ProcessLog[]>([]);
   const [showChart, setShowChart] = useState(false);
+  const [loading, setLoading] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -62,11 +63,17 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
   };
 
   const fetchLogsForSession = async (sessionId: string) => {
+    setLoading(true);
+    setSelectedSession(sessionId);
+    setShowChart(false);
+    
     const { data, error } = await supabase
       .from('process_logs')
       .select('*')
       .eq('session_id', sessionId)
       .order('timestamp', { ascending: true });
+
+    setLoading(false);
 
     if (error) {
       toast({
@@ -74,11 +81,11 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
         description: "Failed to fetch logs",
         variant: "destructive",
       });
+      setLogs([]);
       return;
     }
 
     setLogs(data || []);
-    setSelectedSession(sessionId);
   };
 
   const exportToExcel = () => {
@@ -205,12 +212,10 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => {
-                            fetchLogsForSession(session.id);
-                            setShowChart(false);
-                          }}
+                          onClick={() => fetchLogsForSession(session.id)}
+                          disabled={loading && selectedSession === session.id}
                         >
-                          View Details
+                          {loading && selectedSession === session.id ? 'Loading...' : 'View Details'}
                         </Button>
                       </TableCell>
                     </TableRow>
@@ -222,10 +227,20 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
         </Card>
 
         {/* Selected Session Details */}
-        {selectedSession && logs.length > 0 && (
+        {selectedSession && (
           <>
-            {/* Action Buttons */}
-            <div className="flex gap-4 justify-center">
+            {loading ? (
+              <Card className="bg-card border-border p-12 text-center">
+                <p className="text-muted-foreground text-lg">Loading session data...</p>
+              </Card>
+            ) : logs.length === 0 ? (
+              <Card className="bg-card border-border p-12 text-center">
+                <p className="text-muted-foreground text-lg">No log data available for this session.</p>
+              </Card>
+            ) : (
+              <>
+                {/* Action Buttons */}
+                <div className="flex gap-4 justify-center">
               <Button
                 size="lg"
                 onClick={() => setShowChart(!showChart)}
@@ -346,6 +361,8 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
                 </Table>
               </div>
             </Card>
+              </>
+            )}
           </>
         )}
 
