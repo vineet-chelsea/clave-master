@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ModeSelection } from "@/components/ModeSelection";
 import { ProgramSelection } from "@/components/ProgramSelection";
 import { ProcessMonitor } from "@/components/ProcessMonitor";
 import { ManualControl } from "@/components/ManualControl";
 import { HistoricalData } from "@/components/HistoricalData";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 
 type AppMode = 'selection' | 'auto-program' | 'auto-running' | 'manual-config' | 'manual-running' | 'history';
 
@@ -27,7 +28,51 @@ const Index = () => {
   const [mode, setMode] = useState<AppMode>('selection');
   const [selectedProgram, setSelectedProgram] = useState<Program | null>(null);
   const [manualConfig, setManualConfig] = useState<ManualConfig | null>(null);
+  const [currentPressure, setCurrentPressure] = useState<number>(0);
+  const [currentTemperature, setCurrentTemperature] = useState<number>(25);
   const { toast } = useToast();
+
+  useEffect(() => {
+    // Fetch latest sensor reading
+    const fetchLatestReading = async () => {
+      const { data } = await supabase
+        .from('sensor_readings' as any)
+        .select('pressure, temperature')
+        .order('timestamp', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (data && 'pressure' in data && 'temperature' in data) {
+        setCurrentPressure(data.pressure as number);
+        setCurrentTemperature(data.temperature as number);
+      }
+    };
+
+    fetchLatestReading();
+
+    // Subscribe to realtime updates
+    const channel = supabase
+      .channel('sensor_readings_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'sensor_readings'
+        },
+        (payload: any) => {
+          if (payload.new?.pressure !== undefined && payload.new?.temperature !== undefined) {
+            setCurrentPressure(payload.new.pressure);
+            setCurrentTemperature(payload.new.temperature);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   const handleModeSelect = (selectedMode: 'auto' | 'manual' | 'history') => {
     if (selectedMode === 'auto') {
@@ -73,8 +118,8 @@ const Index = () => {
         <ProgramSelection
           onBack={() => setMode('selection')}
           onStartProgram={handleStartProgram}
-          currentPressure={0}
-          currentTemperature={25}
+          currentPressure={currentPressure}
+          currentTemperature={currentTemperature}
         />
       )}
       
@@ -89,8 +134,8 @@ const Index = () => {
         <ManualControl
           onBack={() => setMode('selection')}
           onStart={handleManualStart}
-          currentPressure={0}
-          currentTemperature={25}
+          currentPressure={currentPressure}
+          currentTemperature={currentTemperature}
         />
       )}
 
