@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -8,6 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import * as XLSX from 'xlsx';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { format } from "date-fns";
+import html2canvas from 'html2canvas';
 
 interface HistoricalDataProps {
   onBack: () => void;
@@ -38,6 +39,8 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
   const [showChart, setShowChart] = useState(false);
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
+  const pressureChartRef = useRef<HTMLDivElement>(null);
+  const temperatureChartRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetchSessions();
@@ -86,6 +89,42 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
     }
 
     setLogs(data || []);
+  };
+
+  const downloadChart = async (chartRef: React.RefObject<HTMLDivElement>, chartName: string) => {
+    if (!chartRef.current) {
+      toast({
+        title: "Error",
+        description: "Chart not found",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const canvas = await html2canvas(chartRef.current, {
+        backgroundColor: '#0a0a0a',
+        scale: 2
+      });
+      
+      const image = canvas.toDataURL('image/png');
+      const link = document.createElement('a');
+      const session = sessions.find(s => s.id === selectedSession);
+      link.download = `${chartName}_${session?.program_name?.replace(/\s+/g, '_')}_${format(new Date(), 'yyyyMMdd_HHmmss')}.png`;
+      link.href = image;
+      link.click();
+
+      toast({
+        title: "Download Successful",
+        description: `Downloaded ${chartName} chart`,
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to download chart",
+        variant: "destructive",
+      });
+    }
   };
 
   const exportToExcel = () => {
@@ -264,69 +303,95 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
             {showChart && (
               <div className="grid md:grid-cols-2 gap-6">
                 <Card className="bg-card border-border p-6">
-                  <h3 className="text-lg font-bold mb-4 text-foreground">PRESSURE vs TIME</h3>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <LineChart data={chartData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-                      <XAxis 
-                        dataKey="time" 
-                        stroke="#888"
-                        tick={{ fill: '#888', fontSize: 11 }}
-                        interval="preserveStartEnd"
-                      />
-                      <YAxis 
-                        stroke="#888"
-                        tick={{ fill: '#888' }}
-                        label={{ value: 'PSI', angle: -90, position: 'insideLeft', fill: '#888' }}
-                      />
-                      <Tooltip 
-                        contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #333' }}
-                        labelStyle={{ color: '#888' }}
-                      />
-                      <Legend />
-                      <Line 
-                        type="monotone" 
-                        dataKey="pressure" 
-                        stroke="#22c55e" 
-                        strokeWidth={2}
-                        dot={false}
-                        name="Pressure (PSI)"
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-lg font-bold text-foreground">PRESSURE vs TIME</h3>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => downloadChart(pressureChartRef, 'Pressure')}
+                      className="gap-2"
+                    >
+                      <Download className="w-4 h-4" />
+                      Download
+                    </Button>
+                  </div>
+                  <div ref={pressureChartRef}>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <LineChart data={chartData}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                        <XAxis 
+                          dataKey="time" 
+                          stroke="#888"
+                          tick={{ fill: '#888', fontSize: 11 }}
+                          interval="preserveStartEnd"
+                        />
+                        <YAxis 
+                          stroke="#888"
+                          tick={{ fill: '#888' }}
+                          label={{ value: 'PSI', angle: -90, position: 'insideLeft', fill: '#888' }}
+                        />
+                        <Tooltip 
+                          contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #333' }}
+                          labelStyle={{ color: '#888' }}
+                        />
+                        <Legend />
+                        <Line 
+                          type="monotone" 
+                          dataKey="pressure" 
+                          stroke="#22c55e" 
+                          strokeWidth={2}
+                          dot={false}
+                          name="Pressure (PSI)"
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
                 </Card>
 
                 <Card className="bg-card border-border p-6">
-                  <h3 className="text-lg font-bold mb-4 text-foreground">TEMPERATURE vs TIME</h3>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <LineChart data={chartData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-                      <XAxis 
-                        dataKey="time" 
-                        stroke="#888"
-                        tick={{ fill: '#888', fontSize: 11 }}
-                        interval="preserveStartEnd"
-                      />
-                      <YAxis 
-                        stroke="#888"
-                        tick={{ fill: '#888' }}
-                        label={{ value: '°C', angle: -90, position: 'insideLeft', fill: '#888' }}
-                      />
-                      <Tooltip 
-                        contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #333' }}
-                        labelStyle={{ color: '#888' }}
-                      />
-                      <Legend />
-                      <Line 
-                        type="monotone" 
-                        dataKey="temperature" 
-                        stroke="#f59e0b" 
-                        strokeWidth={2}
-                        dot={false}
-                        name="Temperature (°C)"
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-lg font-bold text-foreground">TEMPERATURE vs TIME</h3>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => downloadChart(temperatureChartRef, 'Temperature')}
+                      className="gap-2"
+                    >
+                      <Download className="w-4 h-4" />
+                      Download
+                    </Button>
+                  </div>
+                  <div ref={temperatureChartRef}>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <LineChart data={chartData}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                        <XAxis 
+                          dataKey="time" 
+                          stroke="#888"
+                          tick={{ fill: '#888', fontSize: 11 }}
+                          interval="preserveStartEnd"
+                        />
+                        <YAxis 
+                          stroke="#888"
+                          tick={{ fill: '#888' }}
+                          label={{ value: '°C', angle: -90, position: 'insideLeft', fill: '#888' }}
+                        />
+                        <Tooltip 
+                          contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #333' }}
+                          labelStyle={{ color: '#888' }}
+                        />
+                        <Legend />
+                        <Line 
+                          type="monotone" 
+                          dataKey="temperature" 
+                          stroke="#f59e0b" 
+                          strokeWidth={2}
+                          dot={false}
+                          name="Temperature (°C)"
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
                 </Card>
               </div>
             )}
