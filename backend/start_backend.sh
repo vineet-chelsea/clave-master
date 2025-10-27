@@ -1,7 +1,20 @@
 #!/bin/bash
 # Start both sensor service and API server
 
-echo "Starting Autoclave Backend Services..."
+echo "======================================"
+echo "Autoclave Backend Startup"
+echo "======================================"
+
+# Wait for PostgreSQL to be ready
+echo "Waiting for PostgreSQL..."
+sleep 5
+
+# Initialize database if needed
+echo "Initializing database..."
+python docker-init-db.py
+
+echo ""
+echo "Starting services..."
 echo ""
 
 # Start API server in foreground
