@@ -7,6 +7,17 @@ import os
 import sys
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 
+def check_table_exists(cursor, table_name):
+    """Check if a table exists in the database"""
+    cursor.execute("""
+        SELECT EXISTS (
+            SELECT FROM information_schema.tables 
+            WHERE table_schema = 'public'
+            AND table_name = %s
+        );
+    """, (table_name,))
+    return cursor.fetchone()[0]
+
 def init_database():
     """Initialize database tables"""
     
@@ -31,13 +42,21 @@ def init_database():
         
         print("[OK] Connected to database")
         
-        # Drop existing tables if they exist (to recreate with correct schema)
-        cursor.execute("DROP TABLE IF EXISTS process_logs CASCADE;")
-        cursor.execute("DROP TABLE IF EXISTS process_sessions CASCADE;")
-        cursor.execute("DROP TABLE IF EXISTS sensor_readings CASCADE;")
-        cursor.execute("DROP TABLE IF EXISTS autoclave_programs CASCADE;")
-        conn.commit()
-        print("[OK] Dropped old tables")
+        # Check if tables already exist
+        tables_exist = (
+            check_table_exists(cursor, 'sensor_readings') and
+            check_table_exists(cursor, 'process_sessions') and
+            check_table_exists(cursor, 'process_logs') and
+            check_table_exists(cursor, 'autoclave_programs')
+        )
+        
+        if tables_exist:
+            print("[OK] Database tables already exist - skipping initialization")
+            cursor.close()
+            conn.close()
+            return True
+        
+        print("[INFO] Tables not found - initializing database...")
         
         # Create sensor_readings table
         cursor.execute("""

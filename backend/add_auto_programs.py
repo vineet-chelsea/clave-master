@@ -38,9 +38,16 @@ def add_programs():
     cur = conn.cursor()
     
     try:
-        # Clear existing programs
-        cur.execute("DELETE FROM autoclave_programs")
-        print("[OK] Cleared existing programs")
+        # Check if programs already exist
+        cur.execute("SELECT COUNT(*) FROM autoclave_programs")
+        count = cur.fetchone()[0]
+        
+        if count > 0:
+            print(f"[OK] Found {count} existing programs - skipping addition")
+            conn.close()
+            return
+        
+        print("[INFO] No programs found - adding programs...")
         
         # Define programs
         programs = [
