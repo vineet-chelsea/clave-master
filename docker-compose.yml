@@ -33,11 +33,12 @@ services:
       - PG_DATABASE=autoclave
       - PG_USER=postgres
       - PG_PASSWORD=postgres
-      - COM_PORT=/dev/ttyUSB0
+      - COM_PORT=/dev/ttyAMA0  # Updated to match volume mount
       - BAUD_RATE=9600
       - SLAVE_ID=1
     volumes:
-      - /dev/ttyAMA0:/dev/ttyAMA0  # Raspberry Pi GPIO serial (or /dev/ttyUSB0 for USB)
+      - /dev/ttyAMA0:/dev/ttyAMA0  # Raspberry Pi GPIO serial
+    privileged: true  # Required for serial device access
     ports:
       - "5000:5000"
     depends_on:
