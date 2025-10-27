@@ -5,7 +5,7 @@ import { ProcessMonitor } from "@/components/ProcessMonitor";
 import { ManualControl } from "@/components/ManualControl";
 import { HistoricalData } from "@/components/HistoricalData";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, API_URL } from "@/integrations/supabase/client";
 
 type AppMode = 'selection' | 'auto-program' | 'auto-running' | 'manual-config' | 'manual-running' | 'history';
 
@@ -37,7 +37,7 @@ const Index = () => {
     const checkActiveSession = async () => {
       console.log('[INDEX] Checking for active sessions on page load...');
       try {
-        const response = await fetch('http://localhost:5000/api/sessions');
+        const response = await fetch(`${API_URL}/sessions`);
         const sessions = await response.json();
         
         console.log('[INDEX] All sessions:', sessions);
@@ -112,7 +112,7 @@ const Index = () => {
     // Fetch latest sensor reading from API
     const fetchLatestReading = async () => {
       try {
-        const response = await fetch('http://localhost:5000/api/sensor-readings/latest');
+        const response = await fetch(`${API_URL}/sensor-readings/latest`);
         const data = await response.json();
         if (data && 'pressure' in data && 'temperature' in data) {
           setCurrentPressure(data.pressure as number);
@@ -131,7 +131,7 @@ const Index = () => {
     // Also check for active session every 2 seconds (in case one starts)
     const sessionCheck = setInterval(async () => {
       try {
-        const response = await fetch('http://localhost:5000/api/sessions');
+        const response = await fetch(`${API_URL}/sessions`);
         const sessions = await response.json();
         const activeSession = sessions.find((s: any) => s.status === 'running');
         
@@ -194,7 +194,7 @@ const Index = () => {
       const totalDuration = program.steps.reduce((sum, step) => sum + step.duration_minutes, 0);
       
       // Send program steps to backend for multi-step execution
-      const response = await fetch('http://localhost:5000/api/start-auto-program', {
+      const response = await fetch(`${API_URL}/start-auto-program`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -233,7 +233,7 @@ const Index = () => {
   const handleManualStart = async (targetPressure: number, duration: number) => {
     try {
       // Call API to start control session
-      const response = await fetch('http://localhost:5000/api/start-control', {
+      const response = await fetch(`${API_URL}/start-control`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

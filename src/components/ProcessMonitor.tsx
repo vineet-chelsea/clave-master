@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Pause, StopCircle, Play } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, API_URL } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
@@ -72,7 +72,7 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
     // Fetch initial sensor reading immediately
     const fetchInitialReading = async () => {
       try {
-        const response = await fetch('http://localhost:5000/api/sensor-readings/latest');
+        const response = await fetch(`${API_URL}/sensor-readings/latest`);
         const data = await response.json();
         if (data && 'pressure' in data && 'temperature' in data) {
           console.log('Initial sensor reading:', data);
@@ -90,7 +90,7 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
     // Poll for sensor readings from API every second
     sensorPoll = setInterval(async () => {
       try {
-        const response = await fetch('http://localhost:5000/api/sensor-readings/latest');
+        const response = await fetch(`${API_URL}/sensor-readings/latest`);
         const data = await response.json();
         if (data && 'pressure' in data && 'temperature' in data) {
           setCurrentPressure(data.pressure as number);
@@ -105,7 +105,7 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
     statusPoll = setInterval(async () => {
       if (sessionId) {
         try {
-          const response = await fetch('http://localhost:5000/api/sessions');
+          const response = await fetch(`${API_URL}/sessions`);
           const sessions = await response.json();
           const currentSession = sessions.find((s: any) => s.id.toString() === sessionId);
           
@@ -163,7 +163,7 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
   const startSession = async () => {
     // Try to get the current active session from API
     try {
-      const response = await fetch('http://localhost:5000/api/sessions');
+      const response = await fetch(`${API_URL}/sessions`);
       const sessions = await response.json();
       const activeSession = sessions.find((s: any) => s.status === 'running');
       
@@ -202,7 +202,7 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
       let temperature = 25;
       
       try {
-        const response = await fetch('http://localhost:5000/api/sensor-readings/latest');
+        const response = await fetch(`${API_URL}/sensor-readings/latest`);
         const data = await response.json();
         if (data && 'pressure' in data && 'temperature' in data) {
           pressure = data.pressure as number;
@@ -307,7 +307,7 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
     if (status === 'running') {
       // Pause
       try {
-        await fetch('http://localhost:5000/api/pause-control', { method: 'POST' });
+        await fetch(`${API_URL}/pause-control`, { method: 'POST' });
         setStatus('paused');
         toast({
           title: "Process Paused",
@@ -319,7 +319,7 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
     } else {
       // Resume
       try {
-        await fetch('http://localhost:5000/api/resume-control', { method: 'POST' });
+        await fetch(`${API_URL}/resume-control`, { method: 'POST' });
         setStatus('running');
         toast({
           title: "Process Resumed",
@@ -346,7 +346,7 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
 
     // Stop session via API
     try {
-      const response = await fetch('http://localhost:5000/api/stop-control', { method: 'POST' });
+      const response = await fetch(`${API_URL}/stop-control`, { method: 'POST' });
       const result = await response.json();
       console.log('Stop API response:', result);
     } catch (e) {

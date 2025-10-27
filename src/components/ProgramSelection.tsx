@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ArrowLeft, Play } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { API_URL } from "@/integrations/supabase/client";
 
 interface Program {
   id: string;
@@ -39,7 +40,7 @@ export function ProgramSelection({
 
   const loadPrograms = async () => {
     try {
-      const response = await fetch('http://localhost:5000/api/programs');
+      const response = await fetch(`${API_URL}/programs`);
       const data = await response.json();
       
       // Convert API response to Program format

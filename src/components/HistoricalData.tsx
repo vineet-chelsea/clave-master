@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ArrowLeft, Download, BarChart3 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, API_URL } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import * as XLSX from 'xlsx';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
@@ -48,7 +48,7 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
 
   const fetchSessions = async () => {
     try {
-      const response = await fetch('http://localhost:5000/api/sessions');
+      const response = await fetch(`${API_URL}/sessions`);
       const data = await response.json();
       
       // Map API response to component interface
@@ -78,7 +78,7 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
     setShowChart(false);
     
     try {
-      const response = await fetch(`http://localhost:5000/api/sessions/${sessionId}/logs`);
+      const response = await fetch(`${API_URL}/sessions/${sessionId}/logs`);
       const data = await response.json();
       
       // Map API response to component interface

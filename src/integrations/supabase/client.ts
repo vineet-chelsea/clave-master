@@ -17,7 +17,10 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
 });
 
 // API endpoint for sensor readings from PostgreSQL
-export const API_URL = 'http://localhost:5000/api';
+// In production (Docker), this will be set by VITE_API_BASE_URL environment variable
+// Defaults to localhost for local development
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+export const API_URL = `${API_BASE_URL}/api`;
 
 // Helper function to get latest sensor reading
 export async function getLatestSensorReading() {
