@@ -118,7 +118,9 @@ You should see:
 
 ---
 
-## Step 6: Connect Modbus USB Adapter
+## Step 6: Connect Modbus Device
+
+### For USB Adapter (Most Common)
 
 ```bash
 # Plug in USB-to-RS485 adapter
@@ -128,20 +130,33 @@ lsusb
 # Find device path
 dmesg | grep tty
 
-# For GPIO serial: /dev/ttyAMA0
-# For USB adapters: /dev/ttyUSB0 or /dev/ttyACM0
+# Common paths:
+# /dev/ttyUSB0
+# /dev/ttyACM0
 
-# Check permissions
-ls -l /dev/ttyAMA0
+# Fix permission denied error:
+sudo chmod 666 /dev/ttyACM0
+# or
+sudo chmod 666 /dev/ttyUSB0
 
-# Grant permissions
-sudo chmod 666 /dev/ttyAMA0
-
-# Or add user to dialout group
+# Permanent fix (after reboot, permissions persist)
 sudo usermod -aG dialout $USER
+sudo reboot
 ```
 
-**Note:** Remember the device path for Step 7!
+### For GPIO Serial
+
+```bash
+# Enable GPIO serial in raspi-config
+sudo raspi-config
+# Interface Options → Serial Port
+# Enable serial hardware
+
+# Fix permissions
+sudo chmod 666 /dev/ttyAMA0
+```
+
+**Note:** Choose the device path based on your hardware and update Step 7 accordingly!
 
 ---
 
