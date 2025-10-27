@@ -1,0 +1,11 @@
+# Copy this file to .env and fill in your values
+
+# Supabase Configuration
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=your-supabase-anon-key
+
+# Modbus Configuration
+COM_PORT=COM10
+BAUD_RATE=9600
+SLAVE_ID=1
+
