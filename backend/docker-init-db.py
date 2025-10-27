@@ -31,16 +31,24 @@ def init_database():
         
         print("[OK] Connected to database")
         
+        # Drop existing tables if they exist (to recreate with correct schema)
+        cursor.execute("DROP TABLE IF EXISTS process_logs CASCADE;")
+        cursor.execute("DROP TABLE IF EXISTS process_sessions CASCADE;")
+        cursor.execute("DROP TABLE IF EXISTS sensor_readings CASCADE;")
+        cursor.execute("DROP TABLE IF EXISTS autoclave_programs CASCADE;")
+        conn.commit()
+        print("[OK] Dropped old tables")
+        
         # Create sensor_readings table
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS sensor_readings (
+            CREATE TABLE sensor_readings (
                 id SERIAL PRIMARY KEY,
                 timestamp TIMESTAMP NOT NULL DEFAULT NOW(),
                 pressure NUMERIC(6,2) NOT NULL,
                 temperature NUMERIC(6,2) NOT NULL
             );
             
-            CREATE INDEX IF NOT EXISTS idx_sensor_timestamp 
+            CREATE INDEX idx_sensor_timestamp 
             ON sensor_readings(timestamp DESC);
         """)
         
@@ -48,7 +56,7 @@ def init_database():
         
         # Create process_sessions table
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS process_sessions (
+            CREATE TABLE process_sessions (
                 id SERIAL PRIMARY KEY,
                 program_name TEXT,
                 status TEXT DEFAULT 'running',
@@ -59,7 +67,7 @@ def init_database():
                 steps_data JSONB
             );
             
-            CREATE INDEX IF NOT EXISTS idx_sessions_status 
+            CREATE INDEX idx_sessions_status 
             ON process_sessions(status);
         """)
         
@@ -67,7 +75,7 @@ def init_database():
         
         # Create process_logs table
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS process_logs (
+            CREATE TABLE process_logs (
                 id SERIAL PRIMARY KEY,
                 session_id INTEGER REFERENCES process_sessions(id),
                 program_name TEXT,
@@ -78,7 +86,7 @@ def init_database():
                 status TEXT
             );
             
-            CREATE INDEX IF NOT EXISTS idx_logs_session 
+            CREATE INDEX idx_logs_session 
             ON process_logs(session_id, timestamp);
         """)
         
@@ -86,7 +94,7 @@ def init_database():
         
         # Create autoclave_programs table
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS autoclave_programs (
+            CREATE TABLE autoclave_programs (
                 id SERIAL PRIMARY KEY,
                 program_number INTEGER NOT NULL UNIQUE,
                 program_name VARCHAR(255) NOT NULL,
@@ -95,7 +103,7 @@ def init_database():
                 created_at TIMESTAMP DEFAULT NOW()
             );
             
-            CREATE INDEX IF NOT EXISTS idx_program_number 
+            CREATE INDEX idx_program_number 
             ON autoclave_programs(program_number);
         """)
         
