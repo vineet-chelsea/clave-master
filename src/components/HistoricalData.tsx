@@ -47,22 +47,29 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
   }, []);
 
   const fetchSessions = async () => {
-    const { data, error } = await supabase
-      .from('process_sessions')
-      .select('*')
-      .order('start_time', { ascending: false })
-      .limit(50);
-
-    if (error) {
+    try {
+      const response = await fetch('http://localhost:5000/api/sessions');
+      const data = await response.json();
+      
+      // Map API response to component interface
+      const mappedData = data.map((session: any) => ({
+        id: session.id.toString(),
+        program_name: session.program_name || 'Manual Control',
+        start_time: session.start_time,
+        end_time: session.end_time,
+        status: session.status,
+        operator_name: null
+      }));
+      
+      setSessions(mappedData);
+    } catch (error) {
+      console.error('Failed to fetch sessions:', error);
       toast({
         title: "Error",
         description: "Failed to fetch sessions",
         variant: "destructive",
       });
-      return;
     }
-
-    setSessions(data || []);
   };
 
   const fetchLogsForSession = async (sessionId: string) => {
@@ -70,25 +77,32 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
     setSelectedSession(sessionId);
     setShowChart(false);
     
-    const { data, error } = await supabase
-      .from('process_logs')
-      .select('*')
-      .eq('session_id', sessionId)
-      .order('timestamp', { ascending: true });
-
-    setLoading(false);
-
-    if (error) {
+    try {
+      const response = await fetch(`http://localhost:5000/api/sessions/${sessionId}/logs`);
+      const data = await response.json();
+      
+      // Map API response to component interface
+      const mappedData = data.map((log: any, index: number) => ({
+        id: index.toString(),
+        timestamp: log.timestamp,
+        pressure: log.pressure,
+        temperature: log.temperature,
+        valve_position: log.valve_position,
+        status: log.status || 'running'
+      }));
+      
+      setLogs(mappedData);
+    } catch (error) {
+      console.error('Failed to fetch logs:', error);
       toast({
         title: "Error",
         description: "Failed to fetch logs",
         variant: "destructive",
       });
       setLogs([]);
-      return;
+    } finally {
+      setLoading(false);
     }
-
-    setLogs(data || []);
   };
 
   const downloadChart = async (chartRef: React.RefObject<HTMLDivElement>, chartName: string) => {

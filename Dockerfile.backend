@@ -1,0 +1,35 @@
+# Python backend for sensor control and API
+FROM python:3.11-slim
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    libffi-dev \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /app/backend
+
+# Copy requirements first for better caching
+COPY backend/requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy backend files
+COPY backend/ .
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+
+# Create directory for logs
+RUN mkdir -p /app/backend/logs
+
+# Expose API port
+EXPOSE 5000
+
+# Start both services
+CMD ["python", "sensor_control_service.py"]
+

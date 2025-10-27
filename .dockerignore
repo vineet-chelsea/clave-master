@@ -1,0 +1,40 @@
+# Dependencies
+node_modules
+backend/__pycache__
+backend/*.pyc
+backend/venv
+backend/.venv
+
+# Build output
+dist
+build
+*.log
+
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+*.md
+
+# Documentation
+*.md
+docs/
+
+# Docker
+docker-compose.yml
+Dockerfile*
+
+# Supabase
+supabase/.temp
+

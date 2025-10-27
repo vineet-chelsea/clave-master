@@ -53,146 +53,305 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
     ? [{ psi_range: `${manualConfig.targetPressure}`, duration_minutes: manualConfig.duration, action: "steady" }]
     : (program?.steps || []);
 
+  // Debug: Log when component props change
   useEffect(() => {
-    startSession();
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-      if (logIntervalRef.current) clearInterval(logIntervalRef.current);
-    };
+    console.log('ProcessMonitor mounted with:', {
+      isManualMode,
+      manualConfig,
+      program,
+      steps
+    });
   }, []);
 
   useEffect(() => {
+    let sensorPoll: NodeJS.Timeout;
+    let statusPoll: NodeJS.Timeout;
+    
+    startSession();
+    
+    // Fetch initial sensor reading immediately
+    const fetchInitialReading = async () => {
+      try {
+        const response = await fetch('http://localhost:5000/api/sensor-readings/latest');
+        const data = await response.json();
+        if (data && 'pressure' in data && 'temperature' in data) {
+          console.log('Initial sensor reading:', data);
+          setCurrentPressure(data.pressure as number);
+          setCurrentTemperature(data.temperature as number);
+        }
+      } catch (error) {
+        console.error('Failed to fetch initial reading:', error);
+      }
+    };
+    
+    // Fetch immediately
+    fetchInitialReading();
+    
+    // Poll for sensor readings from API every second
+    sensorPoll = setInterval(async () => {
+      try {
+        const response = await fetch('http://localhost:5000/api/sensor-readings/latest');
+        const data = await response.json();
+        if (data && 'pressure' in data && 'temperature' in data) {
+          setCurrentPressure(data.pressure as number);
+          setCurrentTemperature(data.temperature as number);
+        }
+      } catch (error) {
+        // Silent fail - API not running
+      }
+    }, 1000);
+    
+    // Poll for session status every 5 seconds
+    statusPoll = setInterval(async () => {
+      if (sessionId) {
+        try {
+          const response = await fetch('http://localhost:5000/api/sessions');
+          const sessions = await response.json();
+          const currentSession = sessions.find((s: any) => s.id.toString() === sessionId);
+          
+          if (currentSession && (currentSession.status === 'completed' || currentSession.status === 'stopped')) {
+            console.log('Session completed:', currentSession.status);
+            setStatus('paused');
+            if (intervalRef.current) clearInterval(intervalRef.current);
+            completeProcess();
+          }
+        } catch (error) {
+          // Silent fail
+        }
+      }
+    }, 5000);
+    
+    return () => {
+      clearInterval(sensorPoll);
+      clearInterval(statusPoll);
+    };
+  }, [sessionId]);
+
+  // Start simulation and progress updates
+  useEffect(() => {
+    console.log('useEffect [status, currentStep] running, status:', status, 'currentStep:', currentStep);
+    
+    // Clean up any existing intervals first
+    if (intervalRef.current) {
+      console.log('Clearing existing interval');
+      clearInterval(intervalRef.current);
+    }
+    if (logIntervalRef.current) {
+      clearInterval(logIntervalRef.current);
+    }
+    
+    // Only start if running
     if (status === 'running') {
+      console.log('Starting simulation and logging');
       startProcessSimulation();
       startDataLogging();
-    } else {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-      if (logIntervalRef.current) clearInterval(logIntervalRef.current);
     }
+    
+    return () => {
+      console.log('Cleaning up intervals');
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = undefined;
+      }
+      if (logIntervalRef.current) {
+        clearInterval(logIntervalRef.current);
+        logIntervalRef.current = undefined;
+      }
+    };
   }, [status, currentStep]);
 
   const startSession = async () => {
-    const { data, error } = await supabase
-      .from('process_sessions')
-      .insert({
-        program_id: programId,
-        program_name: programName,
-        status: 'running'
-      })
-      .select()
-      .single();
-
-    if (error) {
-      toast({
-        title: "Error",
-        description: "Failed to start session",
-        variant: "destructive"
-      });
-      return;
+    // Try to get the current active session from API
+    try {
+      const response = await fetch('http://localhost:5000/api/sessions');
+      const sessions = await response.json();
+      const activeSession = sessions.find((s: any) => s.status === 'running');
+      
+      if (activeSession) {
+        setSessionId(activeSession.id.toString());
+        console.log('Set sessionId to:', activeSession.id);
+      } else {
+        // Fallback session ID
+        setSessionId('local-' + Date.now());
+        console.log('No active session found, using local ID');
+      }
+    } catch (error) {
+      // Fallback session ID
+      setSessionId('local-' + Date.now());
+      console.error('Failed to fetch sessions:', error);
     }
-
-    setSessionId(data.id);
   };
 
   const startProcessSimulation = () => {
     if (intervalRef.current) clearInterval(intervalRef.current);
 
     const step = steps[currentStep];
-    if (!step) return;
+    if (!step) {
+      console.error('No step found for currentStep:', currentStep, 'Steps:', steps);
+      return;
+    }
 
-    const targetPressure = parseFloat(step.psi_range.split('-')[step.psi_range.includes('-') ? 1 : 0]);
-    const duration = step.duration_minutes * 60; // Convert to seconds
-
-    intervalRef.current = setInterval(() => {
-      setStepProgress((prev) => {
-        const newProgress = prev + (100 / duration);
-        
-        if (newProgress >= 100) {
-          if (currentStep < steps.length - 1) {
-            setCurrentStep(currentStep + 1);
-            return 0;
-          } else {
-            completeProcess();
-            return 100;
-          }
-        }
-        return newProgress;
-      });
-
-      // Simulate pressure changes
-      setCurrentPressure((prev) => {
-        const diff = targetPressure - prev;
-        return prev + (diff * 0.05); // Gradually approach target
-      });
-
-      // Simulate temperature changes (Celsius)
-      setCurrentTemperature((prev) => {
-        const targetTemp = 50 + (targetPressure * 1.5); // Celsius range
-        const diff = targetTemp - prev;
-        return prev + (diff * 0.03);
-      });
-
-      // Update chart data
-      const now = new Date();
-      const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+    console.log('Starting interval for step:', currentStep, 'duration:', step.duration_minutes);
+    
+    // Don't use currentPressure from closure - fetch fresh value
+    let iteration = 0;
+    
+    intervalRef.current = setInterval(async () => {
+      // Fetch fresh sensor data for this iteration
+      let pressure = 0;
+      let temperature = 25;
       
-      setChartData(prev => {
-        const newData = [...prev, {
-          time: timeStr,
-          pressure: currentPressure,
-          temperature: currentTemperature
-        }];
-        // Keep only last 60 data points (1 minute of data)
-        return newData.slice(-60);
-      });
+      try {
+        const response = await fetch('http://localhost:5000/api/sensor-readings/latest');
+        const data = await response.json();
+        if (data && 'pressure' in data && 'temperature' in data) {
+          pressure = data.pressure as number;
+          temperature = data.temperature as number;
+        }
+      } catch (error) {
+        // Silent fail
+      }
+      
+      // Only add to chart if we have valid sensor data
+      if (pressure > 0 || temperature > 0) {
+        // Update chart data with real sensor readings
+        const now = new Date();
+        const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+        
+        setChartData(prev => {
+          const newData = [...prev, {
+            time: timeStr,
+            pressure: pressure,
+            temperature: temperature
+          }];
+          // Keep only last 60 data points (1 minute of data)
+          const slicedData = newData.slice(-60);
+          
+          // Log every 5 seconds for debugging
+          iteration++;
+          if (iteration % 5 === 0) {
+            console.log('Chart update:', {
+              chartLength: slicedData.length,
+              pressure,
+              temperature,
+              latestPoint: slicedData[slicedData.length - 1]
+            });
+          }
+          
+          return slicedData;
+        });
+      }
+
+      // Update step progress - use the step from the closure, not steps[currentStep]
+      const step = steps[currentStep];
+      if (step) {
+        setStepProgress(prev => {
+          // Calculate elapsed time for accurate progress
+          // If progress is already > 0, it means we're resuming, calculate based on actual time
+          const duration = step.duration_minutes * 60; // Convert to seconds
+          
+          // Calculate what progress SHOULD be based on elapsed time
+          // This handles both fresh starts and resumed sessions
+          const currentProgress = prev;
+          const newProgress = currentProgress + (100 / duration);
+          
+          if (newProgress >= 100) {
+            if (currentStep < steps.length - 1) {
+              setCurrentStep(currentStep + 1);
+              return 0;
+            } else {
+              completeProcess();
+              return 100;
+            }
+          }
+          
+          // Debug log
+          iteration++;
+          if (iteration % 10 === 0) {
+            console.log('[PROGRESS]', {
+              currentProgress,
+              newProgress,
+              duration,
+              stepMinutes: step.duration_minutes
+            });
+          }
+          
+          return newProgress;
+        });
+      }
     }, 1000);
   };
 
   const startDataLogging = () => {
     if (logIntervalRef.current) clearInterval(logIntervalRef.current);
 
-    logIntervalRef.current = setInterval(async () => {
-      if (sessionId) {
-        await supabase.from('process_logs').insert({
-          session_id: sessionId,
-          program_id: programId,
-          program_name: programName,
-          pressure: currentPressure,
-          temperature: currentTemperature,
-          valve_position: (currentPressure / 50) * 100, // Simulated valve position
-          status: status
-        });
-      }
-    }, 5000); // Log every 5 seconds
+    // Data logging is handled by the sensor service automatically
+    // No need to log here since sensor_service.py does it every second
+    // This is just a placeholder for UI functionality
+    
+    console.log('Data logging started (no-op, handled by backend)');
   };
 
   const completeProcess = async () => {
     if (intervalRef.current) clearInterval(intervalRef.current);
     if (logIntervalRef.current) clearInterval(logIntervalRef.current);
 
-    await supabase
-      .from('process_sessions')
-      .update({ status: 'completed', end_time: new Date().toISOString() })
-      .eq('id', sessionId);
-
+    // Session completion is handled by the sensor service
     toast({
       title: "Process Complete",
       description: `${programName} completed successfully`,
     });
   };
 
-  const handlePause = () => {
-    setStatus(status === 'running' ? 'paused' : 'running');
+  const handlePause = async () => {
+    if (status === 'running') {
+      // Pause
+      try {
+        await fetch('http://localhost:5000/api/pause-control', { method: 'POST' });
+        setStatus('paused');
+        toast({
+          title: "Process Paused",
+          description: "Pressure control paused",
+        });
+      } catch (e) {
+        console.error('Failed to pause:', e);
+      }
+    } else {
+      // Resume
+      try {
+        await fetch('http://localhost:5000/api/resume-control', { method: 'POST' });
+        setStatus('running');
+        toast({
+          title: "Process Resumed",
+          description: "Pressure control resumed",
+        });
+      } catch (e) {
+        console.error('Failed to resume:', e);
+      }
+    }
   };
 
   const handleStop = async () => {
-    if (intervalRef.current) clearInterval(intervalRef.current);
-    if (logIntervalRef.current) clearInterval(logIntervalRef.current);
+    console.log('Stopping process...');
+    
+    // Clean up intervals
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = undefined;
+    }
+    if (logIntervalRef.current) {
+      clearInterval(logIntervalRef.current);
+      logIntervalRef.current = undefined;
+    }
 
-    await supabase
-      .from('process_sessions')
-      .update({ status: 'stopped', end_time: new Date().toISOString() })
-      .eq('id', sessionId);
+    // Stop session via API
+    try {
+      const response = await fetch('http://localhost:5000/api/stop-control', { method: 'POST' });
+      const result = await response.json();
+      console.log('Stop API response:', result);
+    } catch (e) {
+      console.error('Failed to stop via API:', e);
+    }
 
     toast({
       title: "Process Stopped",
@@ -200,6 +359,7 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
       variant: "destructive"
     });
 
+    // Call parent handler to go back
     onStop();
   };
 
@@ -217,8 +377,8 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
                 {programName}
               </h1>
               <p className="text-muted-foreground mt-1">
-                {isManualMode 
-                  ? `Manual Control - ${currentStepData?.psi_range} PSI for ${currentStepData?.duration_minutes} min`
+                {isManualMode && manualConfig
+                  ? `Manual Control - ${manualConfig.targetPressure} PSI for ${manualConfig.duration} min`
                   : `Step ${currentStep + 1} of ${totalSteps} - ${currentStepData?.action.toUpperCase()} to ${currentStepData?.psi_range} PSI`
                 }
               </p>
@@ -347,7 +507,7 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
             <div className="flex justify-between items-center">
               <h2 className="text-xl font-bold text-foreground">Step Progress</h2>
               <span className="text-muted-foreground">
-                {Math.floor((currentStepData?.duration_minutes || 0) * stepProgress / 100)} / {currentStepData?.duration_minutes || 0} minutes
+                {Math.floor((isManualMode && manualConfig ? manualConfig.duration : (currentStepData?.duration_minutes || 0)) * stepProgress / 100)} / {isManualMode && manualConfig ? manualConfig.duration : (currentStepData?.duration_minutes || 0)} minutes
               </span>
             </div>
             <Progress value={stepProgress} className="h-4" />
@@ -413,7 +573,7 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
                     </div>
                     <div>
                       <p className="font-semibold text-foreground">{step.action.toUpperCase()} - {step.psi_range} PSI</p>
-                      <p className="text-sm text-muted-foreground">{step.duration_minutes} minutes</p>
+                      <p className="text-sm text-muted-foreground">{isManualMode && manualConfig ? manualConfig.duration : step.duration_minutes} minutes</p>
                     </div>
                   </div>
                   {idx === currentStep && (

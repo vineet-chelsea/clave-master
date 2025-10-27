@@ -44,6 +44,27 @@ export type Database = {
         }
         Relationships: []
       }
+      sensor_readings: {
+        Row: {
+          id: string
+          timestamp: string
+          pressure: number
+          temperature: number
+        }
+        Insert: {
+          id?: string
+          timestamp?: string
+          pressure: number
+          temperature: number
+        }
+        Update: {
+          id?: string
+          timestamp?: string
+          pressure?: number
+          temperature?: number
+        }
+        Relationships: []
+      }
       process_logs: {
         Row: {
           id: string

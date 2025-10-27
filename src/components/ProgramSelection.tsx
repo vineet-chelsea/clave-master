@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ArrowLeft, Play } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
 interface Program {
@@ -39,21 +38,28 @@ export function ProgramSelection({
   }, []);
 
   const loadPrograms = async () => {
-    const { data, error } = await supabase
-      .from('autoclave_programs')
-      .select('*')
-      .order('program_number');
-
-    if (error) {
+    try {
+      const response = await fetch('http://localhost:5000/api/programs');
+      const data = await response.json();
+      
+      // Convert API response to Program format
+      const formattedPrograms = data.map((p: any) => ({
+        id: p.id.toString(),
+        program_number: p.program_number,
+        program_name: p.program_name,
+        description: p.description || '',
+        steps: p.steps
+      }));
+      
+      setPrograms(formattedPrograms);
+    } catch (error) {
+      console.error('Failed to load programs:', error);
       toast({
         title: "Error",
         description: "Failed to load programs",
         variant: "destructive"
       });
-      return;
     }
-
-    setPrograms((data || []) as unknown as Program[]);
   };
 
   const handleStartProgram = () => {
@@ -101,7 +107,7 @@ export function ProgramSelection({
               <p className="text-5xl font-bold text-primary">
                 {currentTemperature.toFixed(1)}
               </p>
-              <p className="text-lg text-muted-foreground mt-1">°F</p>
+              <p className="text-lg text-muted-foreground mt-1">°C</p>
             </div>
           </Card>
         </div>
