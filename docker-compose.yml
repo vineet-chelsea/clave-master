@@ -37,7 +37,7 @@ services:
       - BAUD_RATE=9600
       - SLAVE_ID=1
     volumes:
-      - /dev/ttyUSB0:/dev/ttyUSB0  # Raspberry Pi Modbus device
+      - /dev/ttyAMA0:/dev/ttyAMA0  # Raspberry Pi GPIO serial (or /dev/ttyUSB0 for USB)
     ports:
       - "5000:5000"
     depends_on:

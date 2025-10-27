@@ -127,13 +127,15 @@ lsusb
 
 # Find device path
 dmesg | grep tty
-# Look for: /dev/ttyUSB0 or /dev/ttyACM0
+
+# For GPIO serial: /dev/ttyAMA0
+# For USB adapters: /dev/ttyUSB0 or /dev/ttyACM0
 
 # Check permissions
-ls -l /dev/ttyUSB0
+ls -l /dev/ttyAMA0
 
 # Grant permissions
-sudo chmod 666 /dev/ttyUSB0
+sudo chmod 666 /dev/ttyAMA0
 
 # Or add user to dialout group
 sudo usermod -aG dialout $USER
@@ -153,7 +155,7 @@ nano .env
 Paste this content:
 ```env
 # Modbus Configuration
-COM_PORT=/dev/ttyUSB0
+COM_PORT=/dev/ttyAMA0
 BAUD_RATE=9600
 PARITY=N
 STOP_BITS=1
@@ -168,7 +170,7 @@ PG_USER=postgres
 PG_PASSWORD=postgres
 ```
 
-**Important:** Change `COM_PORT` if your device is different!
+**Note:** `/dev/ttyAMA0` is the GPIO serial port on Raspberry Pi. If using USB adapter, change to `/dev/ttyUSB0`.
 
 Save and exit: `Ctrl+X`, `Y`, `Enter`
 
