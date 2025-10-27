@@ -53,13 +53,17 @@ def get_latest_reading():
                 'temperature': float(row[2])
             })
         else:
+            # No readings yet - return default values
             return jsonify({
                 'timestamp': None,
                 'pressure': 0,
                 'temperature': 25
             })
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        import traceback
+        print(f"[ERROR] get_latest_reading: {e}")
+        print(traceback.format_exc())
+        return jsonify({'error': str(e), 'detail': traceback.format_exc()}), 500
 
 @app.route('/api/sensor-readings/recent', methods=['GET'])
 def get_recent_readings():
@@ -123,7 +127,10 @@ def get_sessions():
         
         return jsonify(sessions)
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        import traceback
+        print(f"[ERROR] get_sessions: {e}")
+        print(traceback.format_exc())
+        return jsonify({'error': str(e), 'detail': traceback.format_exc()}), 500
 
 @app.route('/api/sessions/<int:session_id>/logs', methods=['GET'])
 def get_session_logs(session_id):
