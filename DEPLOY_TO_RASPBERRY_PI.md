@@ -191,11 +191,23 @@ Save and exit: `Ctrl+X`, `Y`, `Enter`
 
 ---
 
-## Step 8: Build Docker Images
+## Step 8: Quick Deploy Script
+
+Instead of manual steps, use our automated script:
+
+```bash
+# Make script executable
+chmod +x deploy.sh
+
+# Run deployment (handles everything automatically)
+./deploy.sh
+```
+
+**OR** manually build:
 
 ```bash
 # Build all services (this may take 10-15 minutes)
-docker-compose build
+docker compose build
 
 # If you encounter memory issues, add swap:
 sudo dphys-swapfile swapoff
