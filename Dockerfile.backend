@@ -19,7 +19,9 @@ COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy backend files
-COPY backend/ .
+COPY backend/*.py .
+COPY backend/start_backend.sh .
+RUN chmod +x start_backend.sh
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
@@ -31,5 +33,8 @@ RUN mkdir -p /app/backend/logs
 EXPOSE 5000
 
 # Start both services
-CMD ["python", "sensor_control_service.py"]
+COPY backend/start_backend.sh .
+RUN chmod +x start_backend.sh
+
+CMD ["./start_backend.sh"]
 
