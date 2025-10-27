@@ -100,7 +100,7 @@ docker-compose --version
 
 ```bash
 # Clone the repository
-cd /home/pi
+cd /home/vemcon
 git clone https://github.com/vineet-chelsea/clave-master.git
 cd clave-master
 
@@ -283,7 +283,7 @@ After=docker.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-WorkingDirectory=/home/pi/clave-master
+WorkingDirectory=/home/vemcon/clave-master
 ExecStart=/usr/bin/docker compose up -d
 ExecStop=/usr/bin/docker compose down
 TimeoutStartSec=0

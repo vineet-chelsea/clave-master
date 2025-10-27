@@ -10,11 +10,13 @@ echo "  Autoclave Control System - Quick Deploy"
 echo "================================================"
 echo ""
 
-# Check if running as root
-if [ "$EUID" -eq 0 ]; then 
-   echo "Please do not run as root"
-   exit 1
-fi
+# Detect user and project directory
+PROJECT_DIR=$(pwd)
+USER=$(whoami)
+
+echo "Project directory: $PROJECT_DIR"
+echo "User: $USER"
+echo ""
 
 # Step 1: Check Docker
 echo "[1/7] Checking Docker..."
