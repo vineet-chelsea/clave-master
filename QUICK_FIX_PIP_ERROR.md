@@ -9,6 +9,17 @@ error: externally-managed-environment
 ## Cause
 Newer Raspberry Pi OS (Debian 12+) uses PEP 668 to prevent system-wide Python package installation.
 
+## Best Solution: Use Docker Compose Plugin
+
+**Don't install via pip - use the plugin instead:**
+
+```bash
+sudo apt-get install -y docker-compose-plugin
+docker compose version
+```
+
+This is the modern, recommended way to install Docker Compose!
+
 ## Solution: Use Virtual Environment
 
 ### Option 1: Quick Fix (Recommended)

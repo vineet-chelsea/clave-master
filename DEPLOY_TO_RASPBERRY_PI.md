@@ -61,9 +61,22 @@ logout
 
 ## Step 4: Install Docker Compose
 
+**Easiest Method - Use Standalone Binary:**
+
 ```bash
-# Install pip
-sudo apt-get install -y python3-pip python3-venv
+# Download and install docker compose plugin
+sudo apt-get update
+sudo apt-get install -y docker-compose-plugin
+
+# Verify installation
+docker compose version
+```
+
+**Alternative - Install via pip (if needed):**
+
+```bash
+# Install build dependencies
+sudo apt-get install -y python3-pip python3-venv python3-dev build-essential
 
 # Create virtual environment
 python3 -m venv ~/venv
@@ -71,17 +84,14 @@ python3 -m venv ~/venv
 # Activate virtual environment
 source ~/venv/bin/activate
 
-# Install docker-compose in virtual environment
+# Install docker-compose
 pip install docker-compose
+
+# Add to .bashrc for persistence
+echo 'source ~/venv/bin/activate' >> ~/.bashrc
 
 # Verify
 docker-compose --version
-
-# Deactivate virtual environment
-deactivate
-
-# To use docker-compose later, activate venv first:
-# source ~/venv/bin/activate
 ```
 
 ---
@@ -245,8 +255,8 @@ After=docker.service
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=/home/pi/clave-master
-ExecStart=/usr/bin/bash -c "source /home/pi/venv/bin/activate && docker-compose up -d"
-ExecStop=/usr/bin/bash -c "source /home/pi/venv/bin/activate && docker-compose down"
+ExecStart=/usr/bin/docker compose up -d
+ExecStop=/usr/bin/docker compose down
 TimeoutStartSec=0
 User=pi
 
