@@ -34,7 +34,7 @@ PRESSURE_OUTPUT_MIN = 0
 PRESSURE_OUTPUT_MAX = 87
 
 # Control parameters
-CONTROL_INTERVAL = 15  # Check every 15 seconds
+CONTROL_INTERVAL = 7  # Check every 15 seconds
 PRESSURE_TOLERANCE = 1
 MAX_VALVE_VALUE = 4000
 
@@ -46,7 +46,7 @@ PG_USER = os.getenv('PG_USER', 'postgres')
 PG_PASSWORD = os.getenv('PG_PASSWORD', 'postgres')
 
 # Sensor reading interval
-SENSOR_READ_INTERVAL = 1
+SENSOR_READ_INTERVAL = 7
 
 
 class SensorControlService:
@@ -503,15 +503,18 @@ class SensorControlService:
                             
                             if abs(pressure_diff) > PRESSURE_TOLERANCE:
                                 if pressure_diff < 0:
-                                    new_valve = min(self.valve_position + 200, MAX_VALVE_VALUE)
-                                    success = self.set_valve_position(new_valve)
-                                    if success:
-                                        print(f"[CONTROL] Pressure low ({pressure:.1f}), increasing valve to {new_valve}")
-                                else:
+             #                                    new_valve = min(self.valve_position - 200, MAX_VALVE_VALUE)
                                     new_valve = max(self.valve_position - 200, 0)
+                                    
                                     success = self.set_valve_position(new_valve)
                                     if success:
-                                        print(f"[CONTROL] Pressure high ({pressure:.1f}), decreasing valve to {new_valve}")
+                                        print(f"[CONTROL] Pressure low ({pressure:.1f}), decreasing valve to {new_valve}")
+                                else:
+                                    new_valve = min(self.valve_position + 200,MAX_VALVE_VALUE)
+                                    success = self.set_valve_position(new_valve)
+                                    if success:
+            #                                        print(f"[CONTROL] Pressure high ({pressure:.1f}), increasing valve to {new_valve}")										
+                                        print(f"[CONTROL] Pressure high ({pressure:.1f}), increasing valve to {new_valve}")
                     elif status == 'paused':
                         no_active_session_count = 0  # Reset counter (paused is valid)
                         print("[CONTROL] Paused - no valve adjustments")
