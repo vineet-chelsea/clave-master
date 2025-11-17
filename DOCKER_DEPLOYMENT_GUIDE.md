@@ -192,6 +192,30 @@ SELECT COUNT(*) FROM autoclave_programs;
 \q
 ```
 
+#### Add All Autoclave Programs
+
+After deployment, you need to add all 25 roll programs to the database:
+
+```bash
+# Run the program addition script inside the backend container
+docker-compose exec backend python3 add_all_25_programs.py
+
+# Or if running locally (not in Docker)
+cd backend
+python3 add_all_25_programs.py
+```
+
+**Note:** The script will:
+- Add all 25 roll category programs
+- Include quantity-dependent steps where applicable
+- Prompt for confirmation before making changes
+- Show summary of programs added
+
+**Alternative:** If you prefer to import from a spreadsheet:
+```bash
+docker-compose exec backend python3 import_programs_from_spreadsheet.py /path/to/spreadsheet.xlsx
+```
+
 ### Step 14: Test New Features
 
 1. **PDF Report Generation:**

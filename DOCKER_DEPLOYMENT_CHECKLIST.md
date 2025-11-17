@@ -20,6 +20,7 @@
 - [ ] Test PDF report generation
 - [ ] Verify IST timezone in frontend
 - [ ] Check database: `docker-compose exec postgres psql -U postgres -d autoclave`
+- [ ] **Add all programs:** `docker-compose exec backend python3 add_all_25_programs.py`
 
 ## Quick Commands
 
