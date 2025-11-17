@@ -3,11 +3,25 @@ REST API Server for Sensor Readings
 Provides endpoints for frontend to get latest sensor data
 """
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_file
 from flask_cors import CORS
 import psycopg2
 import os
+import io
+from datetime import datetime
 from dotenv import load_dotenv
+import pytz
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter, A4
+from reportlab.lib.units import inch
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak, Image
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 
 load_dotenv()
 
@@ -21,15 +35,28 @@ PG_DATABASE = os.getenv('PG_DATABASE', 'autoclave')
 PG_USER = os.getenv('PG_USER', 'postgres')
 PG_PASSWORD = os.getenv('PG_PASSWORD', 'postgres')
 
+# IST timezone (UTC+5:30)
+IST = pytz.timezone('Asia/Kolkata')
+
+def get_ist_now():
+    """Get current datetime in IST timezone"""
+    return datetime.now(IST)
+
 def get_db_connection():
-    """Create database connection"""
-    return psycopg2.connect(
+    """Create database connection with IST timezone"""
+    conn = psycopg2.connect(
         host=PG_HOST,
         port=PG_PORT,
         database=PG_DATABASE,
         user=PG_USER,
         password=PG_PASSWORD
     )
+    # Set timezone to IST
+    cursor = conn.cursor()
+    cursor.execute("SET timezone = 'Asia/Kolkata'")
+    conn.commit()
+    cursor.close()
+    return conn
 
 @app.route('/api/sensor-readings/latest', methods=['GET'])
 def get_latest_reading():
@@ -103,9 +130,13 @@ def get_sessions():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        cursor.execute(
-            "SELECT id, program_name, status, start_time, end_time, target_pressure, duration_minutes, steps_data FROM process_sessions ORDER BY start_time DESC LIMIT 50"
-        )
+        cursor.execute("""
+            SELECT id, program_name, status, start_time, end_time, target_pressure, duration_minutes, steps_data,
+                   roll_category_name, sub_roll_name, roll_id, operator_name, number_of_rolls
+            FROM process_sessions 
+            ORDER BY start_time DESC 
+            LIMIT 50
+        """)
         
         rows = cursor.fetchall()
         cursor.close()
@@ -120,7 +151,12 @@ def get_sessions():
                 'end_time': row[4].isoformat() if row[4] else None,
                 'target_pressure': float(row[5]) if row[5] else None,
                 'duration_minutes': int(row[6]) if row[6] else None,
-                'steps_data': row[7] if row[7] else None
+                'steps_data': row[7] if row[7] else None,
+                'roll_category_name': row[8] if len(row) > 8 else None,
+                'sub_roll_name': row[9] if len(row) > 9 else None,
+                'roll_id': row[10] if len(row) > 10 else None,
+                'operator_name': row[11] if len(row) > 11 else None,
+                'number_of_rolls': int(row[12]) if len(row) > 12 and row[12] else None
             }
             for row in rows
         ]
@@ -200,6 +236,297 @@ def get_session_logs(session_id):
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/sessions/<int:session_id>/pdf', methods=['GET'])
+def generate_pdf_report(session_id):
+    """Generate 2-page PDF report for a session"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Get session details
+        cursor.execute("""
+            SELECT id, program_name, status, start_time, end_time, target_pressure, duration_minutes,
+                   roll_category_name, sub_roll_name, roll_id, operator_name, number_of_rolls
+            FROM process_sessions 
+            WHERE id=%s
+        """, (session_id,))
+        
+        session_row = cursor.fetchone()
+        if not session_row:
+            return jsonify({'error': 'Session not found'}), 404
+        
+        session_id_db, program_name, status, start_time, end_time, target_pressure, duration_minutes, \
+        roll_category_name, sub_roll_name, roll_id, operator_name, number_of_rolls = session_row
+        
+        # Get sensor readings for the session
+        if end_time:
+            cursor.execute("""
+                SELECT timestamp, pressure, temperature 
+                FROM sensor_readings 
+                WHERE timestamp >= %s AND timestamp <= %s 
+                ORDER BY timestamp ASC
+            """, (start_time, end_time))
+        else:
+            cursor.execute("""
+                SELECT timestamp, pressure, temperature 
+                FROM sensor_readings 
+                WHERE timestamp >= %s
+                ORDER BY timestamp ASC
+                LIMIT 1000
+            """, (start_time,))
+        
+        readings = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        
+        if not readings:
+            return jsonify({'error': 'No sensor readings found for this session'}), 404
+        
+        # Create PDF in memory - A4 size for printing
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(
+            buffer, 
+            pagesize=A4, 
+            topMargin=0.75*inch, 
+            bottomMargin=0.75*inch,
+            leftMargin=0.75*inch,
+            rightMargin=0.75*inch
+        )
+        story = []
+        styles = getSampleStyleSheet()
+        
+        # Custom styles - optimized for A4 printing
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=14,
+            textColor=colors.HexColor('#1a1a1a'),
+            spaceAfter=10,
+            alignment=TA_CENTER,
+            leading=16
+        )
+        
+        heading_style = ParagraphStyle(
+            'CustomHeading',
+            parent=styles['Heading2'],
+            fontSize=11,
+            textColor=colors.HexColor('#333333'),
+            spaceAfter=5,
+            leading=13
+        )
+        
+        # PAGE 1: Title and Charts
+        # Title section - build title with available parameters
+        title_parts = []
+        if roll_category_name:
+            title_parts.append(f"Roll Name: {roll_category_name}")
+        # Timestamp is current time when report is generated (IST)
+        title_parts.append(f"Timestamp: {get_ist_now().strftime('%Y-%m-%d %H:%M:%S')}")
+        if number_of_rolls:
+            title_parts.append(f"Qty: {number_of_rolls}")
+        if sub_roll_name:
+            title_parts.append(f"Sub Roll Name: {sub_roll_name}")
+        if start_time:
+            title_parts.append(f"Start Time: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        
+        # For manual processes, use program_name if roll_category_name not available
+        if not title_parts and program_name:
+            title_parts.append(f"Program: {program_name}")
+            if start_time:
+                title_parts.append(f"Start Time: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        
+        # Format title to fit A4 width - break into multiple lines if needed
+        title_text = " | ".join(title_parts) if title_parts else f"Session Report - Session {session_id}"
+        # Split long titles into multiple lines for better A4 fit
+        if len(title_text) > 80:
+            # Try to break at logical points
+            parts = title_text.split(" | ")
+            if len(parts) > 3:
+                mid = len(parts) // 2
+                title_line1 = " | ".join(parts[:mid])
+                title_line2 = " | ".join(parts[mid:])
+                story.append(Paragraph(title_line1, title_style))
+                story.append(Paragraph(title_line2, title_style))
+            else:
+                story.append(Paragraph(title_text, title_style))
+        else:
+            story.append(Paragraph(title_text, title_style))
+        story.append(Spacer(1, 0.15*inch))
+        
+        # Operator Name
+        if operator_name:
+            story.append(Paragraph(f"Operator Name: {operator_name}", heading_style))
+            story.append(Spacer(1, 0.08*inch))
+        
+        story.append(Spacer(1, 0.15*inch))
+        
+        # Prepare data for charts
+        timestamps = [r[0] for r in readings]
+        pressures = [float(r[1]) for r in readings]
+        temperatures = [float(r[2]) for r in readings]
+        
+        # Create pressure chart - sized for A4
+        fig_pressure = plt.figure(figsize=(6.5, 2.8))
+        ax_pressure = fig_pressure.add_subplot(111)
+        ax_pressure.plot(timestamps, pressures, color='#2563eb', linewidth=1.5)
+        ax_pressure.set_xlabel('Time', fontsize=9)
+        ax_pressure.set_ylabel('Pressure (PSI)', fontsize=9, color='#2563eb')
+        ax_pressure.tick_params(axis='y', labelcolor='#2563eb')
+        ax_pressure.grid(True, alpha=0.3)
+        ax_pressure.set_title('Pressure Chart', fontsize=11, fontweight='bold')
+        plt.xticks(rotation=45, fontsize=8)
+        plt.tight_layout()
+        
+        # Save pressure chart to buffer
+        img_buffer_pressure = io.BytesIO()
+        fig_pressure.savefig(img_buffer_pressure, format='png', dpi=100, bbox_inches='tight')
+        img_buffer_pressure.seek(0)
+        img_pressure = Image(img_buffer_pressure, width=6.2*inch, height=2.6*inch)
+        story.append(img_pressure)
+        plt.close(fig_pressure)
+        
+        story.append(Spacer(1, 0.15*inch))
+        
+        # Create temperature chart - sized for A4
+        fig_temp = plt.figure(figsize=(6.5, 2.8))
+        ax_temp = fig_temp.add_subplot(111)
+        ax_temp.plot(timestamps, temperatures, color='#dc2626', linewidth=1.5)
+        ax_temp.set_xlabel('Time', fontsize=9)
+        ax_temp.set_ylabel('Temperature (°C)', fontsize=9, color='#dc2626')
+        ax_temp.tick_params(axis='y', labelcolor='#dc2626')
+        ax_temp.grid(True, alpha=0.3)
+        ax_temp.set_title('Temperature Chart', fontsize=11, fontweight='bold')
+        plt.xticks(rotation=45, fontsize=8)
+        plt.tight_layout()
+        
+        # Save temperature chart to buffer
+        img_buffer_temp = io.BytesIO()
+        fig_temp.savefig(img_buffer_temp, format='png', dpi=100, bbox_inches='tight')
+        img_buffer_temp.seek(0)
+        img_temp = Image(img_buffer_temp, width=6.2*inch, height=2.6*inch)
+        story.append(img_temp)
+        plt.close(fig_temp)
+        
+        # Page break
+        story.append(PageBreak())
+        
+        # PAGE 2: Data Tables
+        story.append(Paragraph("Sensor Readings Data", title_style))
+        story.append(Spacer(1, 0.2*inch))
+        
+        # Sample records evenly across time range (up to 72 records total)
+        max_records = min(72, len(readings))
+        records_per_table = (max_records + 1) // 2  # Split equally, first table gets extra if odd
+        
+        # Calculate step size to evenly sample across all readings
+        if len(readings) > max_records:
+            step_size = len(readings) / max_records
+        else:
+            step_size = 1
+        
+        # Sample indices evenly across the time range
+        sampled_indices = []
+        for i in range(max_records):
+            idx = int(i * step_size)
+            if idx < len(readings):
+                sampled_indices.append(idx)
+        
+        # Ensure we have first and last records
+        if len(readings) > 1:
+            if 0 not in sampled_indices:
+                sampled_indices[0] = 0
+            if (len(readings) - 1) not in sampled_indices:
+                sampled_indices[-1] = len(readings) - 1
+            sampled_indices = sorted(list(set(sampled_indices)))[:max_records]
+        
+        # Split sampled indices between pressure and temperature tables
+        pressure_indices = sampled_indices[:records_per_table]
+        temp_indices = sampled_indices[records_per_table:]
+        
+        # Pressure table (first half)
+        pressure_data = [['Timestamp', 'Pressure (PSI)']]
+        for idx in pressure_indices:
+            if idx < len(readings):
+                ts = readings[idx][0]
+                pressure = readings[idx][1]
+                pressure_data.append([
+                    ts.strftime('%Y-%m-%d %H:%M:%S') if isinstance(ts, datetime) else str(ts),
+                    f"{float(pressure):.2f}"
+                ])
+        
+        pressure_table = Table(pressure_data, colWidths=[3.8*inch, 2.2*inch])
+        pressure_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 9),
+            ('FONTSIZE', (0, 1), (-1, -1), 7),
+            ('LEADING', (0, 0), (-1, -1), 9),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+            ('TOPPADDING', (0, 1), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 1), (-1, -1), 4),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.lightgrey])
+        ]))
+        
+        story.append(Paragraph("Pressure Readings", heading_style))
+        story.append(pressure_table)
+        story.append(Spacer(1, 0.3*inch))
+        
+        # Temperature table (second half)
+        temp_data = [['Timestamp', 'Temperature (°C)']]
+        for idx in temp_indices:
+            if idx < len(readings):
+                ts = readings[idx][0]
+                temp = readings[idx][2]
+                temp_data.append([
+                    ts.strftime('%Y-%m-%d %H:%M:%S') if isinstance(ts, datetime) else str(ts),
+                    f"{float(temp):.2f}"
+                ])
+        
+        temp_table = Table(temp_data, colWidths=[3.8*inch, 2.2*inch])
+        temp_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 9),
+            ('FONTSIZE', (0, 1), (-1, -1), 7),
+            ('LEADING', (0, 0), (-1, -1), 9),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+            ('TOPPADDING', (0, 1), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 1), (-1, -1), 4),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.lightgrey])
+        ]))
+        
+        story.append(Paragraph("Temperature Readings", heading_style))
+        story.append(temp_table)
+        
+        # Build PDF
+        doc.build(story)
+        buffer.seek(0)
+        
+        # Generate filename
+        roll_name = roll_category_name or program_name or 'Session'
+        filename = f"Report_{roll_name.replace(' ', '_')}_{session_id}_{get_ist_now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        
+        return send_file(
+            buffer,
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name=filename
+        )
+        
+    except Exception as e:
+        import traceback
+        print(f"[ERROR] PDF generation failed: {e}")
+        traceback.print_exc()
+        return jsonify({'error': str(e), 'detail': traceback.format_exc()}), 500
 
 @app.route('/api/start-control', methods=['POST'])
 def start_control():
@@ -304,6 +631,38 @@ def resume_control():
         print(f"[ERROR] Failed to resume: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
+@app.route('/api/roll-categories', methods=['GET'])
+def get_roll_categories():
+    """Get all roll categories"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT id, category_name, is_active
+            FROM roll_categories
+            WHERE is_active = true
+            ORDER BY id
+        """)
+        
+        rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        
+        categories = [
+            {
+                'id': row[0],
+                'category_name': row[1],
+                'is_active': row[2]
+            }
+            for row in rows
+        ]
+        
+        return jsonify(categories)
+    except Exception as e:
+        print(f"[ERROR] Failed to get roll categories: {e}")
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/programs', methods=['GET'])
 def get_programs():
     """Get all auto programs"""
@@ -312,7 +671,7 @@ def get_programs():
         cursor = conn.cursor()
         
         cursor.execute("""
-            SELECT id, program_number, program_name, description, steps
+            SELECT id, program_number, program_name, description, steps, roll_category_name
             FROM autoclave_programs
             ORDER BY program_number
         """)
@@ -327,7 +686,8 @@ def get_programs():
                 'program_number': row[1],
                 'program_name': row[2],
                 'description': row[3] or '',
-                'steps': row[4]  # JSONB already parsed by psycopg2
+                'steps': row[4],  # JSONB already parsed by psycopg2
+                'roll_category_name': row[5]
             }
             for row in rows
         ]
@@ -337,34 +697,161 @@ def get_programs():
         print(f"[ERROR] Failed to get programs: {e}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/programs/by-category', methods=['GET'])
+def get_program_by_category():
+    """Get program for roll category + quantity"""
+    try:
+        roll_category_name = request.args.get('roll_category_name')
+        number_of_rolls = request.args.get('number_of_rolls', type=int)
+        
+        if not roll_category_name or not number_of_rolls:
+            return jsonify({'error': 'roll_category_name and number_of_rolls are required'}), 400
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Find program by roll category name
+        cursor.execute("""
+            SELECT id, program_number, program_name, description, steps
+            FROM autoclave_programs
+            WHERE roll_category_name = %s
+            LIMIT 1
+        """, (roll_category_name,))
+        
+        row = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        
+        if not row:
+            return jsonify({'error': f'No program found for roll category: {roll_category_name}'}), 404
+        
+        program_id, program_number, program_name, description, steps = row
+        
+        # Calculate steps based on quantity
+        # Determine quantity range (1-3 or 4+)
+        quantity_range = "1-3" if number_of_rolls <= 3 else "4+"
+        
+        # If steps has quantity_variations structure, apply it
+        if isinstance(steps, dict) and 'base_steps' in steps and 'quantity_variations' in steps:
+            base_steps = steps['base_steps']
+            quantity_variations = steps['quantity_variations']
+            
+            # Get final step variation for this quantity
+            final_step = None
+            if quantity_range in quantity_variations:
+                final_step = quantity_variations[quantity_range].get('final_step')
+            
+            # Combine base steps with final step
+            calculated_steps = base_steps.copy()
+            if final_step:
+                calculated_steps.append(final_step)
+            
+            steps = calculated_steps
+        
+        return jsonify({
+            'id': program_id,
+            'program_number': program_number,
+            'program_name': program_name,
+            'description': description or '',
+            'steps': steps,
+            'quantity_range': quantity_range,
+            'number_of_rolls': number_of_rolls
+        })
+    except Exception as e:
+        print(f"[ERROR] Failed to get program by category: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/start-auto-program', methods=['POST'])
 def start_auto_program():
     """Start an auto program with multiple steps"""
     try:
         data = request.json
-        program_name = data.get('program_name', 'Auto Program')
-        steps = data.get('steps', [])
-        total_duration = data.get('total_duration', 60)
         
-        if not steps:
-            return jsonify({'success': False, 'error': 'No steps provided'}), 400
+        # New fields for roll category system
+        roll_category_name = data.get('roll_category_name')
+        number_of_rolls = data.get('number_of_rolls')
+        sub_roll_name = data.get('sub_roll_name')
+        roll_id = data.get('roll_id')
+        operator_name = data.get('operator_name')
+        
+        # Legacy support - if roll_category_name is provided, use new system
+        if roll_category_name and number_of_rolls:
+            # Get program by category and quantity directly from database
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            
+            # Find program by roll category name
+            cursor.execute("""
+                SELECT id, program_number, program_name, description, steps
+                FROM autoclave_programs
+                WHERE roll_category_name = %s
+                LIMIT 1
+            """, (roll_category_name,))
+            
+            row = cursor.fetchone()
+            
+            if not row:
+                cursor.close()
+                conn.close()
+                return jsonify({'success': False, 'error': f'No program found for roll category: {roll_category_name}'}), 404
+            
+            program_id, program_number, program_name, description, steps = row
+            
+            # Calculate steps based on quantity
+            # Determine quantity range (1-3 or 4+)
+            quantity_range = "1-3" if number_of_rolls <= 3 else "4+"
+            
+            # If steps has quantity_variations structure, apply it
+            if isinstance(steps, dict) and 'base_steps' in steps and 'quantity_variations' in steps:
+                base_steps = steps['base_steps']
+                quantity_variations = steps['quantity_variations']
+                
+                # Get final step variation for this quantity
+                final_step = None
+                if quantity_range in quantity_variations:
+                    final_step = quantity_variations[quantity_range].get('final_step')
+                
+                # Combine base steps with final step
+                calculated_steps = base_steps.copy()
+                if final_step:
+                    calculated_steps.append(final_step)
+                
+                steps = calculated_steps
+            
+            cursor.close()
+            conn.close()
+            
+            # Default sub_roll_name to roll_category_name if not provided
+            if not sub_roll_name:
+                sub_roll_name = roll_category_name
+        else:
+            # Legacy mode - use provided steps directly
+            program_name = data.get('program_name', 'Auto Program')
+            steps = data.get('steps', [])
+            if not steps:
+                return jsonify({'success': False, 'error': 'No steps provided'}), 400
+        
+        # Calculate total duration
+        total_duration = sum(step.get('duration_minutes', 0) for step in steps)
         
         # Parse pressure from range (e.g., "5-10" -> 7.5, "40-45" -> 42.5)
         def parse_pressure(psi_range):
-            if '-' in psi_range:
-                parts = psi_range.split('-')
+            if '-' in str(psi_range):
+                parts = str(psi_range).split('-')
                 if len(parts) == 2:
                     try:
                         low = float(parts[0].strip())
                         high = float(parts[1].strip())
-                        return (low + high) / 2  # Median
+                        return (high-1)  # Median
                     except:
                         pass
             # Single value or "Steady at X"
             try:
                 # Extract number from string
                 import re
-                numbers = re.findall(r'\d+(?:\.\d+)?', psi_range)
+                numbers = re.findall(r'\d+(?:\.\d+)?', str(psi_range))
                 if numbers:
                     return float(numbers[0])
             except:
@@ -372,24 +859,37 @@ def start_auto_program():
             return 0
         
         # Get the first step's target pressure
-        first_step = steps[0]
-        target_pressure = parse_pressure(first_step.get('psi_range', '0'))
+        if steps:
+            first_step = steps[0]
+            target_pressure = parse_pressure(first_step.get('psi_range', '0'))
+        else:
+            target_pressure = 0
         
-        # For now, start with just the first step (backend will need multi-step logic)
+        # Store program steps in session
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # Store program steps in session
+        # Convert steps to JSON string for storage
+        import json
+        steps_json = json.dumps(steps)
+        
+        # Insert session with all new fields
         cursor.execute("""
             INSERT INTO process_sessions 
-            (program_name, target_pressure, duration_minutes, status, steps_data)
-            VALUES (%s, %s, %s, 'running', %s::jsonb)
+            (program_name, target_pressure, duration_minutes, status, steps_data,
+             roll_category_name, sub_roll_name, roll_id, operator_name, number_of_rolls)
+            VALUES (%s, %s, %s, 'running', %s::jsonb, %s, %s, %s, %s, %s)
             RETURNING id
         """, (
             program_name,
             target_pressure,
             total_duration,
-            str(steps).replace("'", '"')
+            steps_json,
+            roll_category_name,
+            sub_roll_name,
+            roll_id,
+            operator_name,
+            number_of_rolls
         ))
         
         session_id = cursor.fetchone()[0]
@@ -398,8 +898,11 @@ def start_auto_program():
         conn.close()
         
         print(f"[API] Started auto program: {program_name} (Session {session_id})")
-        print(f"[API] First step: {target_pressure} PSI for {steps[0].get('duration_minutes')} min")
+        if steps:
+            print(f"[API] First step: {target_pressure} PSI for {steps[0].get('duration_minutes')} min")
         print(f"[API] Total steps: {len(steps)}")
+        if roll_category_name:
+            print(f"[API] Roll Category: {roll_category_name}, Quantity: {number_of_rolls}")
         
         return jsonify({
             'success': True,
@@ -411,6 +914,8 @@ def start_auto_program():
         })
     except Exception as e:
         print(f"[ERROR] Failed to start auto program: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/health', methods=['GET'])

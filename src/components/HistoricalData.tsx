@@ -2,17 +2,34 @@ import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ArrowLeft, Download, BarChart3 } from "lucide-react";
+import { ArrowLeft, Download, BarChart3, FileText } from "lucide-react";
 import { supabase, API_URL } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import * as XLSX from 'xlsx';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { format } from "date-fns";
+import { formatInTimeZone, toZonedTime } from "date-fns-tz";
 import html2canvas from 'html2canvas';
 
 interface HistoricalDataProps {
   onBack: () => void;
 }
+
+// IST timezone constant
+const IST_TIMEZONE = 'Asia/Kolkata';
+
+// Helper function to format date in IST
+const formatIST = (date: string | Date | null | undefined, formatStr: string) => {
+  if (!date) return 'N/A';
+  try {
+    const dateObj = typeof date === 'string' ? new Date(date) : date;
+    if (isNaN(dateObj.getTime())) return 'Invalid Date';
+    return formatInTimeZone(dateObj, IST_TIMEZONE, formatStr);
+  } catch (error) {
+    console.error('Error formatting date:', error, date);
+    return 'Invalid Date';
+  }
+};
 
 interface ProcessSession {
   id: string;
@@ -21,6 +38,10 @@ interface ProcessSession {
   end_time: string | null;
   status: string;
   operator_name: string | null;
+  roll_category_name?: string | null;
+  sub_roll_name?: string | null;
+  roll_id?: string | null;
+  number_of_rolls?: number | null;
 }
 
 interface ProcessLog {
@@ -58,7 +79,11 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
         start_time: session.start_time,
         end_time: session.end_time,
         status: session.status,
-        operator_name: null
+        operator_name: session.operator_name || null,
+        roll_category_name: session.roll_category_name || null,
+        sub_roll_name: session.sub_roll_name || null,
+        roll_id: session.roll_id || null,
+        number_of_rolls: session.number_of_rolls || null
       }));
       
       setSessions(mappedData);
@@ -124,7 +149,8 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
       const image = canvas.toDataURL('image/png');
       const link = document.createElement('a');
       const session = sessions.find(s => s.id === selectedSession);
-      link.download = `${chartName}_${session?.program_name?.replace(/\s+/g, '_')}_${format(new Date(), 'yyyyMMdd_HHmmss')}.png`;
+      const sessionName = session?.sub_roll_name || session?.roll_category_name || 'Session';
+      link.download = `${chartName}_${sessionName.replace(/\s+/g, '_')}_${format(new Date(), 'yyyyMMdd_HHmmss')}.png`;
       link.href = image;
       link.click();
 
@@ -155,8 +181,12 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
     
     // Prepare data for Excel
     const excelData = logs.map(log => ({
-      'Timestamp': format(new Date(log.timestamp), 'yyyy-MM-dd HH:mm:ss'),
-      'Program Name': session?.program_name || 'N/A',
+      'Timestamp': formatIST(log.timestamp, 'yyyy-MM-dd HH:mm:ss'),
+      'Roll Category': session?.roll_category_name || 'N/A',
+      'Sub-Roll Name': session?.sub_roll_name || 'N/A',
+      'Roll ID': session?.roll_id || 'N/A',
+      'Number of Rolls': session?.number_of_rolls || 'N/A',
+      'Operator Name': session?.operator_name || 'N/A',
       'Pressure (PSI)': log.pressure.toFixed(2),
       'Temperature (°C)': log.temperature.toFixed(2),
       'Valve Position (%)': log.valve_position?.toFixed(2) || 'N/A',
@@ -169,7 +199,11 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
     // Set column widths
     ws['!cols'] = [
       { wch: 20 }, // Timestamp
-      { wch: 25 }, // Program Name
+      { wch: 25 }, // Roll Category
+      { wch: 25 }, // Sub-Roll Name
+      { wch: 15 }, // Roll ID
+      { wch: 15 }, // Number of Rolls
+      { wch: 18 }, // Operator Name
       { wch: 15 }, // Pressure
       { wch: 18 }, // Temperature
       { wch: 18 }, // Valve Position
@@ -181,7 +215,8 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
     XLSX.utils.book_append_sheet(wb, ws, 'Process Data');
 
     // Generate filename with timestamp
-    const filename = `Process_${session?.program_name?.replace(/\s+/g, '_')}_${format(new Date(), 'yyyyMMdd_HHmmss')}.xlsx`;
+    const sessionName = session?.sub_roll_name || session?.roll_category_name || 'Session';
+    const filename = `Process_${sessionName.replace(/\s+/g, '_')}_${format(new Date(), 'yyyyMMdd_HHmmss')}.xlsx`;
 
     // Save file
     XLSX.writeFile(wb, filename);
@@ -192,8 +227,63 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
     });
   };
 
+  const exportToPDF = async () => {
+    if (!selectedSession) {
+      toast({
+        title: "No Session Selected",
+        description: "Please select a session first",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_URL}/sessions/${selectedSession}/pdf`, {
+        method: 'GET',
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to generate PDF');
+      }
+
+      // Get filename from Content-Disposition header or generate one
+      const contentDisposition = response.headers.get('Content-Disposition');
+      let filename = `Report_Session_${selectedSession}_${format(new Date(), 'yyyyMMdd_HHmmss')}.pdf`;
+      
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+        if (filenameMatch && filenameMatch[1]) {
+          filename = filenameMatch[1].replace(/['"]/g, '');
+        }
+      }
+
+      // Create blob and download
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      toast({
+        title: "PDF Generated",
+        description: `Downloaded ${filename}`,
+      });
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to generate PDF report",
+        variant: "destructive",
+      });
+    }
+  };
+
   const chartData = logs.map(log => ({
-    time: format(new Date(log.timestamp), 'HH:mm:ss'),
+    time: formatIST(log.timestamp, 'HH:mm:ss'),
     pressure: log.pressure,
     temperature: log.temperature
   }));
@@ -222,7 +312,10 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Program Name</TableHead>
+                  <TableHead>Roll Category</TableHead>
+                  <TableHead>Sub-Roll Name</TableHead>
+                  <TableHead>Roll ID</TableHead>
+                  <TableHead>Qty</TableHead>
                   <TableHead>Start Time</TableHead>
                   <TableHead>End Time</TableHead>
                   <TableHead>Duration</TableHead>
@@ -242,11 +335,14 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
                       key={session.id}
                       className={selectedSession === session.id ? 'bg-primary/10' : ''}
                     >
-                      <TableCell className="font-medium">{session.program_name}</TableCell>
-                      <TableCell>{format(new Date(session.start_time), 'yyyy-MM-dd HH:mm')}</TableCell>
+                      <TableCell className="font-medium">{session.roll_category_name || 'N/A'}</TableCell>
+                      <TableCell>{session.sub_roll_name || 'N/A'}</TableCell>
+                      <TableCell>{session.roll_id || 'N/A'}</TableCell>
+                      <TableCell>{session.number_of_rolls || 'N/A'}</TableCell>
+                      <TableCell>{formatIST(session.start_time, 'yyyy-MM-dd HH:mm')}</TableCell>
                       <TableCell>
                         {session.end_time 
-                          ? format(new Date(session.end_time), 'yyyy-MM-dd HH:mm')
+                          ? formatIST(session.end_time, 'yyyy-MM-dd HH:mm')
                           : 'Running'
                         }
                       </TableCell>
@@ -311,6 +407,15 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
                 <Download className="w-5 h-5" />
                 Export to Excel
               </Button>
+              <Button
+                size="lg"
+                variant="outline"
+                onClick={exportToPDF}
+                className="gap-2"
+              >
+                <FileText className="w-5 h-5" />
+                Generate PDF Report
+              </Button>
             </div>
 
             {/* Charts */}
@@ -342,6 +447,8 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
                         <YAxis 
                           stroke="#888"
                           tick={{ fill: '#888' }}
+                          domain={[0, 60]}
+                          ticks={[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60]}
                           label={{ value: 'PSI', angle: -90, position: 'insideLeft', fill: '#888' }}
                         />
                         <Tooltip 
@@ -427,7 +534,7 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
                   <TableBody>
                     {logs.map((log) => (
                       <TableRow key={log.id}>
-                        <TableCell>{format(new Date(log.timestamp), 'yyyy-MM-dd HH:mm:ss')}</TableCell>
+                        <TableCell>{formatIST(log.timestamp, 'yyyy-MM-dd HH:mm:ss')}</TableCell>
                         <TableCell className="text-green-400 font-bold">{log.pressure.toFixed(2)}</TableCell>
                         <TableCell className="text-yellow-400 font-bold">{log.temperature.toFixed(2)}</TableCell>
                         <TableCell>{log.valve_position?.toFixed(2) || 'N/A'}</TableCell>

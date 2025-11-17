@@ -6,6 +6,7 @@ import { Pause, StopCircle, Play } from "lucide-react";
 import { supabase, API_URL } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { formatInTimeZone } from "date-fns-tz";
 
 interface Program {
   id: string;
@@ -39,13 +40,16 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
   const [currentPressure, setCurrentPressure] = useState(0);
   const [currentTemperature, setCurrentTemperature] = useState(25);
   const [sessionId, setSessionId] = useState<string>('');
+  const [sessionData, setSessionData] = useState<any>(null);
   const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
   const { toast } = useToast();
   const intervalRef = useRef<NodeJS.Timeout>();
   const logIntervalRef = useRef<NodeJS.Timeout>();
 
   const isManualMode = !!manualConfig;
-  const programName = isManualMode ? "Manual Control" : (program?.program_name || "");
+  const displayName = isManualMode 
+    ? "Manual Control" 
+    : (sessionData?.sub_roll_name || sessionData?.roll_category_name || "");
   const programId = program?.id || null;
 
   // Create steps array - either from program or manual config
@@ -109,11 +113,14 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
           const sessions = await response.json();
           const currentSession = sessions.find((s: any) => s.id.toString() === sessionId);
           
-          if (currentSession && (currentSession.status === 'completed' || currentSession.status === 'stopped')) {
-            console.log('Session completed:', currentSession.status);
-            setStatus('paused');
-            if (intervalRef.current) clearInterval(intervalRef.current);
-            completeProcess();
+          if (currentSession) {
+            setSessionData(currentSession);
+            if (currentSession.status === 'completed' || currentSession.status === 'stopped') {
+              console.log('Session completed:', currentSession.status);
+              setStatus('paused');
+              if (intervalRef.current) clearInterval(intervalRef.current);
+              completeProcess();
+            }
           }
         } catch (error) {
           // Silent fail
@@ -169,7 +176,9 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
       
       if (activeSession) {
         setSessionId(activeSession.id.toString());
+        setSessionData(activeSession);
         console.log('Set sessionId to:', activeSession.id);
+        console.log('Session data:', activeSession);
       } else {
         // Fallback session ID
         setSessionId('local-' + Date.now());
@@ -212,11 +221,12 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
         // Silent fail
       }
       
-      // Only add to chart if we have valid sensor data
-      if (pressure > 0 || temperature > 0) {
-        // Update chart data with real sensor readings
-        const now = new Date();
-        const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+        // Only add to chart if we have valid sensor data
+        if (pressure > 0 || temperature > 0) {
+          // Update chart data with real sensor readings (IST timezone)
+          try {
+            const now = new Date();
+            const timeStr = formatInTimeZone(now, 'Asia/Kolkata', 'HH:mm:ss');
         
         setChartData(prev => {
           const newData = [...prev, {
@@ -240,7 +250,10 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
           
           return slicedData;
         });
-      }
+          } catch (error) {
+            console.error('Error formatting time in IST:', error);
+          }
+        }
 
       // Update step progress - use the step from the closure, not steps[currentStep]
       const step = steps[currentStep];
@@ -299,7 +312,7 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
     // Session completion is handled by the sensor service
     toast({
       title: "Process Complete",
-      description: `${programName} completed successfully`,
+      description: `${displayName} completed successfully`,
     });
   };
 
@@ -374,14 +387,22 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-3xl font-bold text-foreground">
-                {programName}
+                {displayName}
               </h1>
               <p className="text-muted-foreground mt-1">
                 {isManualMode && manualConfig
                   ? `Manual Control - ${manualConfig.targetPressure} PSI for ${manualConfig.duration} min`
-                  : `Step ${currentStep + 1} of ${totalSteps} - ${currentStepData?.action.toUpperCase()} to ${currentStepData?.psi_range} PSI`
+                  : sessionData?.roll_category_name 
+                    ? `${sessionData.roll_category_name}${sessionData.number_of_rolls ? ` - ${sessionData.number_of_rolls} rolls` : ''}`
+                    : `Step ${currentStep + 1} of ${totalSteps} - ${currentStepData?.action.toUpperCase()} to ${currentStepData?.psi_range} PSI`
                 }
               </p>
+              {sessionData && !isManualMode && (
+                <div className="mt-2 text-sm text-muted-foreground space-y-1">
+                  {sessionData.roll_id && <p>Roll ID: {sessionData.roll_id}</p>}
+                  {sessionData.operator_name && <p>Operator: {sessionData.operator_name}</p>}
+                </div>
+              )}
             </div>
             <div className={`px-6 py-3 rounded-lg font-bold text-lg ${
               status === 'running' 
@@ -446,6 +467,7 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
                   stroke="#888"
                   tick={{ fill: '#888' }}
                   domain={[0, 60]}
+                  ticks={[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60]}
                   label={{ value: 'PSI', angle: -90, position: 'insideLeft', fill: '#888' }}
                 />
                 <Tooltip 

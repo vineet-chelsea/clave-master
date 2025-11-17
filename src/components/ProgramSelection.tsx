@@ -1,9 +1,18 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ArrowLeft, Play } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { API_URL } from "@/integrations/supabase/client";
+
+interface RollCategory {
+  id: number;
+  category_name: string;
+  is_active: boolean;
+}
 
 interface Program {
   id: string;
@@ -30,42 +39,142 @@ export function ProgramSelection({
   currentPressure,
   currentTemperature 
 }: ProgramSelectionProps) {
-  const [programs, setPrograms] = useState<Program[]>([]);
-  const [selectedProgram, setSelectedProgram] = useState<Program | null>(null);
+  const [rollCategories, setRollCategories] = useState<RollCategory[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string>("");
+  const [subRollName, setSubRollName] = useState<string>("");
+  const [numberOfRolls, setNumberOfRolls] = useState<string>("");
+  const [rollId, setRollId] = useState<string>("");
+  const [operatorName, setOperatorName] = useState<string>("");
+  const [loading, setLoading] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
-    loadPrograms();
+    loadRollCategories();
   }, []);
 
-  const loadPrograms = async () => {
+  useEffect(() => {
+    // Update sub-roll name when category changes (only if currently empty or matches previous category)
+    if (selectedCategory) {
+      const category = rollCategories.find(c => c.category_name === selectedCategory);
+      if (category) {
+        // Only update if subRollName is empty or matches the category (user hasn't customized it)
+        if (!subRollName || subRollName === selectedCategory) {
+          setSubRollName(category.category_name);
+        }
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCategory, rollCategories]);
+
+  const loadRollCategories = async () => {
     try {
-      const response = await fetch(`${API_URL}/programs`);
+      const response = await fetch(`${API_URL}/roll-categories`);
       const data = await response.json();
-      
-      // Convert API response to Program format
-      const formattedPrograms = data.map((p: any) => ({
-        id: p.id.toString(),
-        program_number: p.program_number,
-        program_name: p.program_name,
-        description: p.description || '',
-        steps: p.steps
-      }));
-      
-      setPrograms(formattedPrograms);
+      setRollCategories(data);
     } catch (error) {
-      console.error('Failed to load programs:', error);
+      console.error('Failed to load roll categories:', error);
       toast({
         title: "Error",
-        description: "Failed to load programs",
+        description: "Failed to load roll categories",
         variant: "destructive"
       });
     }
   };
 
-  const handleStartProgram = () => {
-    if (selectedProgram) {
-      onStartProgram(selectedProgram);
+  const handleStartProgram = async () => {
+    // Validation
+    if (!selectedCategory) {
+      toast({
+        title: "Validation Error",
+        description: "Please select a roll category",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (!numberOfRolls || parseInt(numberOfRolls) < 1 || parseInt(numberOfRolls) > 100) {
+      toast({
+        title: "Validation Error",
+        description: "Please enter a valid number of rolls (1-100)",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (!rollId) {
+      toast({
+        title: "Validation Error",
+        description: "Please enter a Roll ID",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (!operatorName) {
+      toast({
+        title: "Validation Error",
+        description: "Please enter an operator name",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      // Get program for this category and quantity
+      const programResponse = await fetch(
+        `${API_URL}/programs/by-category?roll_category_name=${encodeURIComponent(selectedCategory)}&number_of_rolls=${numberOfRolls}`
+      );
+
+      if (!programResponse.ok) {
+        const errorData = await programResponse.json();
+        throw new Error(errorData.error || 'Failed to get program');
+      }
+
+      const programData = await programResponse.json();
+
+      // Start the program with all the new fields
+      const startResponse = await fetch(`${API_URL}/start-auto-program`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          roll_category_name: selectedCategory,
+          number_of_rolls: parseInt(numberOfRolls),
+          sub_roll_name: subRollName || selectedCategory,
+          roll_id: rollId,
+          operator_name: operatorName
+        })
+      });
+
+      if (!startResponse.ok) {
+        const errorData = await startResponse.json();
+        throw new Error(errorData.error || 'Failed to start program');
+      }
+
+      const startData = await startResponse.json();
+
+      // Convert to Program format for onStartProgram
+      const program: Program = {
+        id: programData.id.toString(),
+        program_number: programData.program_number,
+        program_name: programData.program_name,
+        description: programData.description || '',
+        steps: programData.steps
+      };
+
+      onStartProgram(program);
+    } catch (error: any) {
+      console.error('Failed to start program:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to start program",
+        variant: "destructive"
+      });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -113,59 +222,94 @@ export function ProgramSelection({
           </Card>
         </div>
 
-        {/* Program List */}
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {programs.map((program) => (
-            <Card
-              key={program.id}
-              className={`p-6 cursor-pointer transition-all border-2 ${
-                selectedProgram?.id === program.id
-                  ? 'border-primary bg-primary/10'
-                  : 'border-border bg-card hover:border-primary/50'
-              }`}
-              onClick={() => setSelectedProgram(program)}
-            >
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-lg font-bold text-primary">
-                    P{program.program_number.toString().padStart(2, '0')}
-                  </span>
-                  {selectedProgram?.id === program.id && (
-                    <div className="w-3 h-3 rounded-full bg-primary animate-pulse" />
-                  )}
-                </div>
-                <h3 className="text-xl font-bold text-foreground">
-                  {program.program_name}
-                </h3>
-                <p className="text-sm text-muted-foreground">
-                  {program.description}
-                </p>
-                <div className="pt-2 space-y-1">
-                  {program.steps.map((step, idx) => (
-                    <div key={idx} className="text-xs text-muted-foreground flex justify-between">
-                      <span>{step.psi_range} PSI</span>
-                      <span>{step.duration_minutes} min</span>
-                    </div>
-                  ))}
-                </div>
+        {/* Program Selection Form */}
+        <Card className="p-6">
+          <div className="space-y-6">
+            <h2 className="text-2xl font-bold text-foreground">Program Configuration</h2>
+            
+            <div className="grid md:grid-cols-2 gap-6">
+              {/* Roll Category Dropdown */}
+              <div className="space-y-2">
+                <Label htmlFor="roll-category">Roll Category *</Label>
+                <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+                  <SelectTrigger id="roll-category">
+                    <SelectValue placeholder="Select roll category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {rollCategories.map((category) => (
+                      <SelectItem key={category.id} value={category.category_name}>
+                        {category.category_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-            </Card>
-          ))}
-        </div>
 
-        {/* Start Button */}
-        {selectedProgram && (
-          <div className="fixed bottom-8 right-8">
-            <Button
-              size="lg"
-              onClick={handleStartProgram}
-              className="gap-2 text-lg px-8 py-6 bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg"
-            >
-              <Play className="w-6 h-6" />
-              START PROGRAM
-            </Button>
+              {/* Sub-Roll Name Input */}
+              <div className="space-y-2">
+                <Label htmlFor="sub-roll-name">Sub-Roll Name</Label>
+                <Input
+                  id="sub-roll-name"
+                  value={subRollName}
+                  onChange={(e) => setSubRollName(e.target.value)}
+                  placeholder={selectedCategory || "Enter sub-roll name"}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Defaults to roll category name. Can be edited.
+                </p>
+              </div>
+
+              {/* Number of Rolls */}
+              <div className="space-y-2">
+                <Label htmlFor="number-of-rolls">Number of Rolls * (1-100)</Label>
+                <Input
+                  id="number-of-rolls"
+                  type="number"
+                  min="1"
+                  max="100"
+                  value={numberOfRolls}
+                  onChange={(e) => setNumberOfRolls(e.target.value)}
+                  placeholder="Enter number of rolls"
+                />
+              </div>
+
+              {/* Roll ID */}
+              <div className="space-y-2">
+                <Label htmlFor="roll-id">Roll ID *</Label>
+                <Input
+                  id="roll-id"
+                  value={rollId}
+                  onChange={(e) => setRollId(e.target.value)}
+                  placeholder="Enter roll ID for reporting"
+                />
+              </div>
+
+              {/* Operator Name */}
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="operator-name">Operator Name *</Label>
+                <Input
+                  id="operator-name"
+                  value={operatorName}
+                  onChange={(e) => setOperatorName(e.target.value)}
+                  placeholder="Enter operator name"
+                />
+              </div>
+            </div>
+
+            {/* Start Button */}
+            <div className="flex justify-end pt-4">
+              <Button
+                size="lg"
+                onClick={handleStartProgram}
+                disabled={loading}
+                className="gap-2 text-lg px-8 py-6 bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg"
+              >
+                <Play className="w-6 h-6" />
+                {loading ? "Starting..." : "START SESSION"}
+              </Button>
+            </div>
           </div>
-        )}
+        </Card>
       </div>
     </div>
   );
