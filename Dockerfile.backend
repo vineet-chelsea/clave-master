@@ -1,12 +1,17 @@
 # Python backend for sensor control and API
 FROM python:3.11-slim
 
+# Set environment variables to avoid interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+
 # Install system dependencies
-RUN apt-get update && apt-get install -y \
+RUN apt-get update -qq && \
+    apt-get install -y --no-install-recommends \
     gcc \
     g++ \
     libffi-dev \
     libpq-dev \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
