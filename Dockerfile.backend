@@ -32,11 +32,24 @@ RUN for i in 1 2 3 4 5; do \
 # Set working directory
 WORKDIR /app/backend
 
+# Configure pip to handle SSL and network issues better
+RUN mkdir -p /root/.pip && \
+    echo '[global]' > /root/.pip/pip.conf && \
+    echo 'timeout = 300' >> /root/.pip/pip.conf && \
+    echo 'retries = 10' >> /root/.pip/pip.conf && \
+    echo 'trusted-host = pypi.org' >> /root/.pip/pip.conf && \
+    echo 'trusted-host = files.pythonhosted.org' >> /root/.pip/pip.conf
+
 # Copy requirements first for better caching
 COPY backend/requirements.txt .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Upgrade pip and setuptools first, then install Python dependencies with retry logic
+# SSL errors can occur due to network issues, so we retry with exponential backoff
+RUN pip install --upgrade pip setuptools wheel && \
+    for i in 1 2 3 4 5; do \
+        pip install --no-cache-dir -r requirements.txt && \
+        break || (echo "Attempt $i failed, retrying..." && sleep $((i * 10))); \
+    done
 
 # Copy backend files
 COPY backend/*.py .
