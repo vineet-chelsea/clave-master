@@ -33,12 +33,10 @@ RUN for i in 1 2 3 4 5; do \
 WORKDIR /app/backend
 
 # Configure pip to handle SSL and network issues better
-RUN mkdir -p /root/.pip && \
-    echo '[global]' > /root/.pip/pip.conf && \
-    echo 'timeout = 300' >> /root/.pip/pip.conf && \
-    echo 'retries = 10' >> /root/.pip/pip.conf && \
-    echo 'trusted-host = pypi.org' >> /root/.pip/pip.conf && \
-    echo 'trusted-host = files.pythonhosted.org' >> /root/.pip/pip.conf
+# Remove any existing pip.conf to avoid conflicts, then create a fresh one
+RUN rm -rf /root/.pip && \
+    mkdir -p /root/.pip && \
+    printf '[global]\ntimeout = 300\nretries = 10\ntrusted-host = pypi.org\ntrusted-host = files.pythonhosted.org\n' > /root/.pip/pip.conf
 
 # Copy requirements first for better caching
 COPY backend/requirements.txt .
