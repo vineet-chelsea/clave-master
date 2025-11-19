@@ -78,18 +78,20 @@ def init_database():
         
         # Create sensor_readings table
         cursor.execute("""
-            CREATE TABLE sensor_readings (
+            CREATE TABLE IF NOT EXISTS sensor_readings (
                 id SERIAL PRIMARY KEY,
                 timestamp TIMESTAMP NOT NULL DEFAULT NOW(),
                 pressure NUMERIC(6,2) NOT NULL,
                 temperature NUMERIC(6,2) NOT NULL
             );
-            
-            CREATE INDEX idx_sensor_timestamp 
+        """)
+        
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_sensor_timestamp 
             ON sensor_readings(timestamp DESC);
         """)
         
-        print("[OK] Created sensor_readings table")
+        print("[OK] Created/verified sensor_readings table")
         
         # Create process_sessions table
         cursor.execute("""
@@ -117,7 +119,7 @@ def init_database():
         
         # Create process_logs table
         cursor.execute("""
-            CREATE TABLE process_logs (
+            CREATE TABLE IF NOT EXISTS process_logs (
                 id SERIAL PRIMARY KEY,
                 session_id INTEGER REFERENCES process_sessions(id),
                 program_name TEXT,
@@ -127,12 +129,14 @@ def init_database():
                 valve_position INTEGER,
                 status TEXT
             );
-            
-            CREATE INDEX idx_logs_session 
+        """)
+        
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_logs_session 
             ON process_logs(session_id, timestamp);
         """)
         
-        print("[OK] Created process_logs table")
+        print("[OK] Created/verified process_logs table")
         
         # Create autoclave_programs table
         cursor.execute("""
