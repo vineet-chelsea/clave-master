@@ -36,7 +36,7 @@ WORKDIR /app/backend
 # Remove any existing pip.conf to avoid conflicts, then create a fresh one
 RUN rm -rf /root/.pip && \
     mkdir -p /root/.pip && \
-    printf '[global]\ntimeout = 300\nretries = 10\ntrusted-host = pypi.org\ntrusted-host = files.pythonhosted.org\n' > /root/.pip/pip.conf
+    printf '[global]\ntimeout = 300\nretries = 10\ntrusted-host = pypi.org files.pythonhosted.org\n' > /root/.pip/pip.conf
 
 # Copy requirements first for better caching
 COPY backend/requirements.txt .
