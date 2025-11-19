@@ -547,12 +547,19 @@ if __name__ == "__main__":
     print("Programs with quantity-dependent steps will be stored with")
     print("quantity_variations structure.\n")
     
-    response = input("Do you want to proceed? (yes/no): ").strip().lower()
-    
-    if response in ['yes', 'y']:
-        add_all_programs()
+    # Check if running in non-interactive mode (Docker, CI, etc.)
+    import sys
+    if sys.stdin.isatty():
+        # Interactive mode - ask for confirmation
+        response = input("Do you want to proceed? (yes/no): ").strip().lower()
+        if response not in ['yes', 'y']:
+            print("\n[INFO] Operation cancelled. No changes made.")
+            print("\nTo review the programs before running, check the script file:")
+            print("  backend/add_all_25_programs.py")
+            sys.exit(0)
     else:
-        print("\n[INFO] Operation cancelled. No changes made.")
-        print("\nTo review the programs before running, check the script file:")
-        print("  backend/add_all_25_programs.py")
+        # Non-interactive mode - proceed automatically
+        print("[INFO] Running in non-interactive mode. Proceeding automatically...")
+    
+    add_all_programs()
 
