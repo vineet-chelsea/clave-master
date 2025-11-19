@@ -1136,7 +1136,7 @@ class SensorControlService:
                     # Save to database
                     self.save_sensor_reading(pressure, temperature)
                     
-                            # Check for new sessions that need control (only when not already controlling)
+                    # Check for new sessions that need control (only when not already controlling)
                     if not self.control_active and self.conn:
                         try:
                             cursor = self.conn.cursor()
