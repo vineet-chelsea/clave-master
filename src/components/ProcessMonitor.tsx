@@ -466,8 +466,8 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
                 <YAxis 
                   stroke="#888"
                   tick={{ fill: '#888' }}
-                  domain={[0, 60]}
-                  ticks={[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60]}
+                  domain={[5, 60]}
+                  ticks={[5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60]}
                   label={{ value: 'PSI', angle: -90, position: 'insideLeft', fill: '#888' }}
                 />
                 <Tooltip 
@@ -502,7 +502,8 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
                 <YAxis 
                   stroke="#888"
                   tick={{ fill: '#888' }}
-                  domain={[0, 150]}
+                  domain={[20, 160]}
+                  ticks={[20, 40, 60, 80, 100, 120, 140, 160]}
                   label={{ value: '°C', angle: -90, position: 'insideLeft', fill: '#888' }}
                 />
                 <Tooltip 

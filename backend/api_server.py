@@ -381,6 +381,10 @@ def generate_pdf_report(session_id):
         if len(timestamps) > 0:
             ax_pressure.set_xlim([timestamps[0], timestamps[-1]])
         
+        # Set y-axis scale: 5 to 60 PSI with sequential ticks
+        ax_pressure.set_ylim([5, 60])
+        ax_pressure.set_yticks([5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60])
+        
         # Format x-axis to show time range clearly
         ax_pressure.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
         ax_pressure.xaxis.set_major_locator(mdates.AutoDateLocator(maxticks=8))
@@ -413,6 +417,10 @@ def generate_pdf_report(session_id):
         # Set x-axis to show full time range from start to end
         if len(timestamps) > 0:
             ax_temp.set_xlim([timestamps[0], timestamps[-1]])
+        
+        # Set y-axis scale: 20 to 160 °C with specified ticks
+        ax_temp.set_ylim([20, 160])
+        ax_temp.set_yticks([20, 40, 60, 80, 100, 120, 140, 160])
         
         # Format x-axis to show time range clearly
         ax_temp.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
