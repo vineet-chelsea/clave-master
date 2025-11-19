@@ -442,16 +442,15 @@ def generate_pdf_report(session_id):
         story.append(img_temp)
         plt.close(fig_temp)
         
-        # Page break
-        story.append(PageBreak())
-        
-        # PAGE 2: Data Tables
-        story.append(Paragraph("Sensor Readings Data", title_style))
+        # No page break - continue on same page (page 2)
         story.append(Spacer(1, 0.2*inch))
         
-        # Sample records evenly across time range (up to 72 records total)
+        # PAGE 2: Combined Data Table
+        story.append(Paragraph("Sensor Readings Data", title_style))
+        story.append(Spacer(1, 0.15*inch))
+        
+        # Sample 72 records evenly across time range
         max_records = min(72, len(readings))
-        records_per_table = (max_records + 1) // 2  # Split equally, first table gets extra if odd
         
         # Calculate step size to evenly sample across all readings
         if len(readings) > max_records:
@@ -474,26 +473,26 @@ def generate_pdf_report(session_id):
                 sampled_indices[-1] = len(readings) - 1
             sampled_indices = sorted(list(set(sampled_indices)))[:max_records]
         
-        # Split sampled indices between pressure and temperature tables
-        pressure_indices = sampled_indices[:records_per_table]
-        temp_indices = sampled_indices[records_per_table:]
-        
-        # Pressure table (first half)
-        pressure_data = [['Timestamp', 'Pressure (PSI)']]
-        for idx in pressure_indices:
+        # Combined table with Timestamp, Pressure, and Temperature
+        combined_data = [['Timestamp', 'Pressure (PSI)', 'Temperature (°C)']]
+        for idx in sampled_indices:
             if idx < len(readings):
                 ts = readings[idx][0]
                 pressure = readings[idx][1]
-                pressure_data.append([
+                temperature = readings[idx][2]
+                combined_data.append([
                     ts.strftime('%Y-%m-%d %H:%M:%S') if isinstance(ts, datetime) else str(ts),
-                    f"{float(pressure):.2f}"
+                    f"{float(pressure):.2f}",
+                    f"{float(temperature):.2f}"
                 ])
         
-        pressure_table = Table(pressure_data, colWidths=[3.8*inch, 2.2*inch])
-        pressure_table.setStyle(TableStyle([
+        # Create combined table with 3 columns
+        combined_table = Table(combined_data, colWidths=[2.5*inch, 1.8*inch, 1.8*inch])
+        combined_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('ALIGN', (1, 1), (2, -1), 'CENTER'),  # Center align pressure and temperature values
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
             ('FONTSIZE', (0, 0), (-1, 0), 9),
             ('FONTSIZE', (0, 1), (-1, -1), 7),
@@ -506,40 +505,8 @@ def generate_pdf_report(session_id):
             ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.lightgrey])
         ]))
         
-        story.append(Paragraph("Pressure Readings", heading_style))
-        story.append(pressure_table)
-        story.append(Spacer(1, 0.3*inch))
-        
-        # Temperature table (second half)
-        temp_data = [['Timestamp', 'Temperature (°C)']]
-        for idx in temp_indices:
-            if idx < len(readings):
-                ts = readings[idx][0]
-                temp = readings[idx][2]
-                temp_data.append([
-                    ts.strftime('%Y-%m-%d %H:%M:%S') if isinstance(ts, datetime) else str(ts),
-                    f"{float(temp):.2f}"
-                ])
-        
-        temp_table = Table(temp_data, colWidths=[3.8*inch, 2.2*inch])
-        temp_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 9),
-            ('FONTSIZE', (0, 1), (-1, -1), 7),
-            ('LEADING', (0, 0), (-1, -1), 9),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
-            ('TOPPADDING', (0, 1), (-1, -1), 4),
-            ('BOTTOMPADDING', (0, 1), (-1, -1), 4),
-            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.lightgrey])
-        ]))
-        
-        story.append(Paragraph("Temperature Readings", heading_style))
-        story.append(temp_table)
+        story.append(Paragraph("Sensor Readings (72 equally spaced values)", heading_style))
+        story.append(combined_table)
         
         # Build PDF
         doc.build(story)
