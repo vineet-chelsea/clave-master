@@ -11,7 +11,10 @@ sleep 5
 
 # Initialize database if needed
 echo "Initializing database..."
-python docker-init-db.py
+if ! python docker-init-db.py; then
+    echo "[ERROR] Database initialization failed!"
+    exit 1
+fi
 
 echo ""
 echo "Starting services..."

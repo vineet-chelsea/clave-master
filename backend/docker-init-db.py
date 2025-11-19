@@ -204,6 +204,49 @@ def init_database():
         ]
         
         for col_name, col_type in new_columns:
+            try:
+                cursor.execute("""
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_name = 'process_sessions' 
+                    AND column_name = %s
+                """, (col_name,))
+                if cursor.fetchone() is None:
+                    cursor.execute(f"ALTER TABLE process_sessions ADD COLUMN {col_name} {col_type}")
+                    conn.commit()  # Commit immediately after each column addition
+                    print(f"[OK] Added {col_name} to process_sessions")
+                else:
+                    print(f"[OK] Column {col_name} already exists in process_sessions")
+            except Exception as e:
+                print(f"[ERROR] Failed to add column {col_name}: {e}")
+                raise  # Re-raise to fail the initialization
+        
+        # Always check and add missing columns to autoclave_programs (migration)
+        print("[INFO] Checking and adding missing columns to autoclave_programs...")
+        try:
+            cursor.execute("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'autoclave_programs' 
+                AND column_name = 'roll_category_name'
+            """)
+            if cursor.fetchone() is None:
+                cursor.execute("ALTER TABLE autoclave_programs ADD COLUMN roll_category_name TEXT")
+                conn.commit()  # Commit immediately
+                print("[OK] Added roll_category_name to autoclave_programs")
+            else:
+                print("[OK] Column roll_category_name already exists in autoclave_programs")
+        except Exception as e:
+            print(f"[ERROR] Failed to add roll_category_name to autoclave_programs: {e}")
+            raise  # Re-raise to fail the initialization
+        
+        # Commit changes
+        conn.commit()
+        
+        # Verify all required columns exist in process_sessions
+        print("[INFO] Verifying all columns exist in process_sessions...")
+        required_columns = ['roll_category_name', 'sub_roll_name', 'roll_id', 'operator_name', 'number_of_rolls']
+        for col_name in required_columns:
             cursor.execute("""
                 SELECT column_name 
                 FROM information_schema.columns 
@@ -211,27 +254,13 @@ def init_database():
                 AND column_name = %s
             """, (col_name,))
             if cursor.fetchone() is None:
-                cursor.execute(f"ALTER TABLE process_sessions ADD COLUMN {col_name} {col_type}")
-                print(f"[OK] Added {col_name} to process_sessions")
+                print(f"[ERROR] Column {col_name} is missing from process_sessions after migration!")
+                cursor.close()
+                conn.close()
+                return False
             else:
-                print(f"[OK] Column {col_name} already exists in process_sessions")
+                print(f"[OK] Verified column {col_name} exists")
         
-        # Always check and add missing columns to autoclave_programs (migration)
-        print("[INFO] Checking and adding missing columns to autoclave_programs...")
-        cursor.execute("""
-            SELECT column_name 
-            FROM information_schema.columns 
-            WHERE table_name = 'autoclave_programs' 
-            AND column_name = 'roll_category_name'
-        """)
-        if cursor.fetchone() is None:
-            cursor.execute("ALTER TABLE autoclave_programs ADD COLUMN roll_category_name TEXT")
-            print("[OK] Added roll_category_name to autoclave_programs")
-        else:
-            print("[OK] Column roll_category_name already exists in autoclave_programs")
-        
-        # Commit changes
-        conn.commit()
         cursor.close()
         conn.close()
         
@@ -248,5 +277,9 @@ if __name__ == '__main__':
     print("="*60)
     print("Database Initialization for Docker")
     print("="*60)
-    init_database()
+    success = init_database()
+    if not success:
+        print("\n[FATAL] Database initialization failed. Exiting...")
+        sys.exit(1)
+    sys.exit(0)
 
