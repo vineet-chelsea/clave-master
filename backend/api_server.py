@@ -449,9 +449,11 @@ def generate_pdf_report(session_id):
         if len(timestamps) > 0:
             ax_temp.set_xlim([timestamps[0], timestamps[-1]])
         
-        # Set y-axis scale: 20 to 160 °C with specified ticks
+        # Set y-axis scale: 20 to 160 °C with specified ticks (20, 40, 60, 80, 100, 120, 140, 160)
         ax_temp.set_ylim([20, 160])
-        ax_temp.set_yticks([20, 40, 60, 80, 100, 120, 140, 160])
+        temp_ticks = [20, 40, 60, 80, 100, 120, 140, 160]
+        ax_temp.set_yticks(temp_ticks)
+        ax_temp.set_yticklabels([str(tick) for tick in temp_ticks])  # Explicitly set labels to ensure correct display
         
         # Format x-axis to show time range clearly
         ax_temp.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
