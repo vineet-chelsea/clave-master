@@ -324,7 +324,7 @@ def generate_pdf_report(session_id):
         # Session Information Table
         info_data = []
         
-        # Roll Category Name
+        # Roll Category Name - always show
         if roll_category_name:
             info_data.append(['Roll Category Name:', roll_category_name])
         elif program_name:
@@ -332,23 +332,31 @@ def generate_pdf_report(session_id):
         else:
             info_data.append(['Program Name:', f'Session {session_id}'])
         
-        # Roll Name (Sub-Roll Name)
+        # Roll Name (Sub-Roll Name) - always show
         if sub_roll_name:
             info_data.append(['Roll Name:', sub_roll_name])
         elif roll_category_name:
             info_data.append(['Roll Name:', roll_category_name])
+        else:
+            info_data.append(['Roll Name:', 'N/A'])
         
-        # Quantity
+        # Quantity - always show
         if number_of_rolls:
             info_data.append(['Quantity:', str(number_of_rolls)])
+        else:
+            info_data.append(['Quantity:', 'N/A'])
         
-        # Operator Name
+        # Operator Name - always show
         if operator_name:
             info_data.append(['Operator Name:', operator_name])
+        else:
+            info_data.append(['Operator Name:', 'N/A'])
         
-        # Roll ID
+        # Roll ID - always show
         if roll_id:
             info_data.append(['Roll ID:', roll_id])
+        else:
+            info_data.append(['Roll ID:', 'N/A'])
         
         # Session timing
         if start_time:
@@ -402,9 +410,11 @@ def generate_pdf_report(session_id):
         if len(timestamps) > 0:
             ax_pressure.set_xlim([timestamps[0], timestamps[-1]])
         
-        # Set y-axis scale: 5 to 60 PSI with sequential ticks
+        # Set y-axis scale: 5 to 60 PSI with sequential ticks (5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60)
         ax_pressure.set_ylim([5, 60])
-        ax_pressure.set_yticks([5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60])
+        pressure_ticks = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60]
+        ax_pressure.set_yticks(pressure_ticks)
+        ax_pressure.set_yticklabels([str(tick) for tick in pressure_ticks])  # Explicitly set labels to ensure correct display
         
         # Format x-axis to show time range clearly
         ax_pressure.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
