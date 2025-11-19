@@ -361,20 +361,35 @@ def generate_pdf_report(session_id):
         
         story.append(Spacer(1, 0.15*inch))
         
-        # Prepare data for charts
+        # Prepare data for charts - use ALL readings for entire session
         timestamps = [r[0] for r in readings]
         pressures = [float(r[1]) for r in readings]
         temperatures = [float(r[2]) for r in readings]
         
-        # Create pressure chart - sized for A4
+        # Ensure we have data
+        if not timestamps or not pressures or not temperatures:
+            return jsonify({'error': 'No valid sensor data found for charts'}), 404
+        
+        # Create pressure chart - sized for A4, showing ENTIRE session
         fig_pressure = plt.figure(figsize=(6.5, 2.8))
         ax_pressure = fig_pressure.add_subplot(111)
+        
+        # Plot ALL data points for entire session
         ax_pressure.plot(timestamps, pressures, color='#2563eb', linewidth=1.5)
+        
+        # Set x-axis to show full time range from start to end
+        if len(timestamps) > 0:
+            ax_pressure.set_xlim([timestamps[0], timestamps[-1]])
+        
+        # Format x-axis to show time range clearly
+        ax_pressure.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
+        ax_pressure.xaxis.set_major_locator(mdates.AutoDateLocator(maxticks=8))
+        
         ax_pressure.set_xlabel('Time', fontsize=9)
         ax_pressure.set_ylabel('Pressure (PSI)', fontsize=9, color='#2563eb')
         ax_pressure.tick_params(axis='y', labelcolor='#2563eb')
         ax_pressure.grid(True, alpha=0.3)
-        ax_pressure.set_title('Pressure Chart', fontsize=11, fontweight='bold')
+        ax_pressure.set_title('Pressure Chart - Entire Session', fontsize=11, fontweight='bold')
         plt.xticks(rotation=45, fontsize=8)
         plt.tight_layout()
         
@@ -388,15 +403,26 @@ def generate_pdf_report(session_id):
         
         story.append(Spacer(1, 0.15*inch))
         
-        # Create temperature chart - sized for A4
+        # Create temperature chart - sized for A4, showing ENTIRE session
         fig_temp = plt.figure(figsize=(6.5, 2.8))
         ax_temp = fig_temp.add_subplot(111)
+        
+        # Plot ALL data points for entire session
         ax_temp.plot(timestamps, temperatures, color='#dc2626', linewidth=1.5)
+        
+        # Set x-axis to show full time range from start to end
+        if len(timestamps) > 0:
+            ax_temp.set_xlim([timestamps[0], timestamps[-1]])
+        
+        # Format x-axis to show time range clearly
+        ax_temp.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
+        ax_temp.xaxis.set_major_locator(mdates.AutoDateLocator(maxticks=8))
+        
         ax_temp.set_xlabel('Time', fontsize=9)
         ax_temp.set_ylabel('Temperature (°C)', fontsize=9, color='#dc2626')
         ax_temp.tick_params(axis='y', labelcolor='#dc2626')
         ax_temp.grid(True, alpha=0.3)
-        ax_temp.set_title('Temperature Chart', fontsize=11, fontweight='bold')
+        ax_temp.set_title('Temperature Chart - Entire Session', fontsize=11, fontweight='bold')
         plt.xticks(rotation=45, fontsize=8)
         plt.tight_layout()
         
