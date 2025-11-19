@@ -755,6 +755,24 @@ class SensorControlService:
             print("[ERROR] Database not connected")
             return False
         
+        # Check if control is already active - prevent duplicate control loops
+        if self.control_active:
+            # Check if it's for the same session
+            if self.session_id:
+                cursor = self.conn.cursor()
+                cursor.execute(
+                    "SELECT id FROM process_sessions WHERE id=%s AND status='running'",
+                    (self.session_id,)
+                )
+                result = cursor.fetchone()
+                cursor.close()
+                if result:
+                    print(f"[INFO] Control already active for session {self.session_id}, skipping duplicate start")
+                    return True
+            else:
+                print("[INFO] Control already active but no session ID, stopping old control first")
+                self.stop_control_session()
+        
         try:
             # Convert to proper types
             target_pressure = float(target_pressure)
@@ -815,20 +833,26 @@ class SensorControlService:
             self.remaining_minutes = duration_minutes
             self.end_time = get_ist_now().timestamp() + (duration_minutes * 60)
             
-            # Start control thread
-            self.control_thread = threading.Thread(target=self.control_loop, daemon=True)
-            self.control_thread.start()
+            # Start control thread only if not already running
+            if not hasattr(self, 'control_thread') or not self.control_thread.is_alive():
+                self.control_thread = threading.Thread(target=self.control_loop, daemon=True)
+                self.control_thread.start()
+                print(f"     Control thread started")
+            else:
+                print(f"     Control thread already running")
             
-            # Start buzzer control thread
-            self.buzzer_stop_event.clear()
-            self.buzzer_thread = threading.Thread(target=self.buzzer_control_loop, daemon=True)
-            self.buzzer_thread.start()
+            # Start buzzer control thread only if not already running
+            if not hasattr(self, 'buzzer_thread') or not self.buzzer_thread.is_alive():
+                self.buzzer_stop_event.clear()
+                self.buzzer_thread = threading.Thread(target=self.buzzer_control_loop, daemon=True)
+                self.buzzer_thread.start()
+                print(f"     Buzzer control thread started")
+            else:
+                print(f"     Buzzer control thread already running")
             
             print(f"[OK] Started control session {self.session_id}")
             print(f"     Target: {target_pressure} PSI")
             print(f"     Duration: {duration_minutes} minutes")
-            print(f"     Control thread started")
-            print(f"     Buzzer control thread started")
             return True
         except Exception as e:
             print(f"[ERROR] Failed to start session: {e}")
