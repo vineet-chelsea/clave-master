@@ -749,7 +749,7 @@ class SensorControlService:
         except Exception as e:
             pass
     
-    def start_control_session(self, target_pressure, duration_minutes, program_name="Manual Control", steps_data=None):
+    def start_control_session(self, target_pressure, duration_minutes, program_name="Manual Control", steps_data=None, existing_session_id=None):
         """Start a new control session"""
         if not self.conn:
             print("[ERROR] Database not connected")
@@ -778,26 +778,45 @@ class SensorControlService:
             target_pressure = float(target_pressure)
             duration_minutes = int(duration_minutes)
             
-            # Get existing session ID if session already exists (from API)
-            cursor = self.conn.cursor()
-            cursor.execute(
-                "SELECT id FROM process_sessions WHERE status='running' AND program_name=%s ORDER BY id DESC LIMIT 1",
-                (program_name,)
-            )
-            result = cursor.fetchone()
-            
-            if result:
-                # Use existing session
-                self.session_id = result[0]
-                print(f"[SESSION] Using existing session {self.session_id}")
-            else:
-                # Create new session
+            # If session_id is provided (from API), use it directly
+            if existing_session_id:
+                cursor = self.conn.cursor()
                 cursor.execute(
-                    "INSERT INTO process_sessions (program_name, status, start_time) VALUES (%s, %s, %s) RETURNING id",
-                    (program_name, 'running', get_ist_now())
+                    "SELECT id FROM process_sessions WHERE id=%s AND status='running'",
+                    (existing_session_id,)
                 )
-                self.session_id = cursor.fetchone()[0]
-                print(f"[SESSION] Created new session {self.session_id}")
+                result = cursor.fetchone()
+                cursor.close()
+                if result:
+                    self.session_id = existing_session_id
+                    print(f"[SESSION] Using provided session {self.session_id}")
+                else:
+                    print(f"[WARNING] Provided session {existing_session_id} not found or not running, will create new one")
+                    existing_session_id = None
+            
+            # If no session_id provided or session not found, try to find existing or create new
+            if not existing_session_id:
+                cursor = self.conn.cursor()
+                # First, check for ANY running session with target_pressure (most recent)
+                cursor.execute(
+                    "SELECT id FROM process_sessions WHERE status='running' AND target_pressure IS NOT NULL ORDER BY id DESC LIMIT 1"
+                )
+                result = cursor.fetchone()
+                
+                if result:
+                    # Use existing session
+                    self.session_id = result[0]
+                    print(f"[SESSION] Using existing running session {self.session_id}")
+                else:
+                    # Create new session only if no running session exists
+                    cursor.execute(
+                        "INSERT INTO process_sessions (program_name, status, start_time) VALUES (%s, %s, %s) RETURNING id",
+                        (program_name, 'running', get_ist_now())
+                    )
+                    self.session_id = cursor.fetchone()[0]
+                    print(f"[SESSION] Created new session {self.session_id}")
+                
+                cursor.close()
             
             # Load program steps if provided (auto program mode)
             if steps_data:
@@ -1141,7 +1160,8 @@ class SensorControlService:
                                     else:
                                         print(f"     Type: Manual Mode")
                                     self.last_checked_session_id = session_id
-                                    self.start_control_session(float(target_pressure), int(duration_minutes), program_name, steps_data)
+                                    # Pass session_id to prevent duplicate session creation
+                                    self.start_control_session(float(target_pressure), int(duration_minutes), program_name, steps_data, existing_session_id=session_id)
                         except Exception as e:
                             pass  # Silent fail, continue reading
                     
