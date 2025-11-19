@@ -713,20 +713,51 @@ def get_program_by_category():
         
         # Find program by roll category name
         cursor.execute("""
-            SELECT id, program_number, program_name, description, steps
+            SELECT id, program_number, program_name, description, steps, roll_category_name
             FROM autoclave_programs
             WHERE roll_category_name = %s
             LIMIT 1
         """, (roll_category_name,))
         
         row = cursor.fetchone()
+        
+        if not row:
+            # Check if any programs exist at all
+            cursor.execute("SELECT COUNT(*) FROM autoclave_programs")
+            total_programs = cursor.fetchone()[0]
+            
+            # Check if programs exist but don't have roll_category_name set
+            cursor.execute("""
+                SELECT COUNT(*) FROM autoclave_programs 
+                WHERE roll_category_name IS NULL OR roll_category_name = ''
+            """)
+            programs_without_category = cursor.fetchone()[0]
+            
+            # Get list of available roll categories that have programs
+            cursor.execute("""
+                SELECT DISTINCT roll_category_name 
+                FROM autoclave_programs 
+                WHERE roll_category_name IS NOT NULL AND roll_category_name != ''
+            """)
+            available_categories = [row[0] for row in cursor.fetchall()]
+            
+            cursor.close()
+            conn.close()
+            
+            error_msg = f'No program found for roll category: {roll_category_name}'
+            if total_programs == 0:
+                error_msg += '. No programs are configured in the database.'
+            elif programs_without_category > 0:
+                error_msg += f'. Found {programs_without_category} program(s) without roll category assigned.'
+            if available_categories:
+                error_msg += f' Available categories: {", ".join(available_categories[:10])}'
+            
+            return jsonify({'error': error_msg}), 404
+        
         cursor.close()
         conn.close()
         
-        if not row:
-            return jsonify({'error': f'No program found for roll category: {roll_category_name}'}), 404
-        
-        program_id, program_number, program_name, description, steps = row
+        program_id, program_number, program_name, description, steps, _ = row
         
         # Calculate steps based on quantity
         # Determine quantity range (1-3 or 4+)
@@ -785,7 +816,7 @@ def start_auto_program():
             
             # Find program by roll category name
             cursor.execute("""
-                SELECT id, program_number, program_name, description, steps
+                SELECT id, program_number, program_name, description, steps, roll_category_name
                 FROM autoclave_programs
                 WHERE roll_category_name = %s
                 LIMIT 1
@@ -794,11 +825,39 @@ def start_auto_program():
             row = cursor.fetchone()
             
             if not row:
+                # Check if any programs exist at all
+                cursor.execute("SELECT COUNT(*) FROM autoclave_programs")
+                total_programs = cursor.fetchone()[0]
+                
+                # Check if programs exist but don't have roll_category_name set
+                cursor.execute("""
+                    SELECT COUNT(*) FROM autoclave_programs 
+                    WHERE roll_category_name IS NULL OR roll_category_name = ''
+                """)
+                programs_without_category = cursor.fetchone()[0]
+                
+                # Get list of available roll categories that have programs
+                cursor.execute("""
+                    SELECT DISTINCT roll_category_name 
+                    FROM autoclave_programs 
+                    WHERE roll_category_name IS NOT NULL AND roll_category_name != ''
+                """)
+                available_categories = [row[0] for row in cursor.fetchall()]
+                
                 cursor.close()
                 conn.close()
-                return jsonify({'success': False, 'error': f'No program found for roll category: {roll_category_name}'}), 404
+                
+                error_msg = f'No program found for roll category: {roll_category_name}'
+                if total_programs == 0:
+                    error_msg += '. No programs are configured in the database.'
+                elif programs_without_category > 0:
+                    error_msg += f'. Found {programs_without_category} program(s) without roll category assigned.'
+                if available_categories:
+                    error_msg += f' Available categories: {", ".join(available_categories[:10])}'
+                
+                return jsonify({'success': False, 'error': error_msg}), 404
             
-            program_id, program_number, program_name, description, steps = row
+            program_id, program_number, program_name, description, steps, _ = row
             
             # Calculate steps based on quantity
             # Determine quantity range (1-3 or 4+)
