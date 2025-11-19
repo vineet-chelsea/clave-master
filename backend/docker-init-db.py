@@ -42,26 +42,19 @@ def init_database():
         
         print("[OK] Connected to database")
         
-        # Drop all existing tables in correct order (handle foreign key constraints)
-        print("[INFO] Dropping existing tables to create fresh database...")
+        # Check if tables already exist
+        tables_exist = (
+            check_table_exists(cursor, 'sensor_readings') and
+            check_table_exists(cursor, 'process_sessions') and
+            check_table_exists(cursor, 'process_logs') and
+            check_table_exists(cursor, 'autoclave_programs')
+        )
         
-        tables_to_drop = [
-            'process_logs',      # Has FK to process_sessions
-            'process_sessions',
-            'sensor_readings',
-            'autoclave_programs',
-            'roll_categories'
-        ]
-        
-        for table in tables_to_drop:
-            if check_table_exists(cursor, table):
-                cursor.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
-                print(f"[OK] Dropped {table} table")
-        
-        # Commit the drops
-        conn.commit()
-        
-        print("[INFO] Creating fresh tables...")
+        if tables_exist:
+            print("[OK] Core database tables already exist")
+            print("[INFO] Verifying and migrating schema if needed...")
+        else:
+            print("[INFO] Tables not found - initializing database...")
         
         # Create sensor_readings table
         cursor.execute("""
@@ -71,9 +64,7 @@ def init_database():
                 pressure NUMERIC(6,2) NOT NULL,
                 temperature NUMERIC(6,2) NOT NULL
             );
-        """)
-        
-        cursor.execute("""
+            
             CREATE INDEX idx_sensor_timestamp 
             ON sensor_readings(timestamp DESC);
         """)
@@ -82,7 +73,7 @@ def init_database():
         
         # Create process_sessions table
         cursor.execute("""
-            CREATE TABLE process_sessions (
+            CREATE TABLE IF NOT EXISTS process_sessions (
                 id SERIAL PRIMARY KEY,
                 program_name TEXT,
                 status TEXT DEFAULT 'running',
@@ -97,14 +88,12 @@ def init_database():
                 operator_name TEXT,
                 number_of_rolls INTEGER
             );
-        """)
-        
-        cursor.execute("""
-            CREATE INDEX idx_sessions_status 
+            
+            CREATE INDEX IF NOT EXISTS idx_sessions_status 
             ON process_sessions(status);
         """)
         
-        print("[OK] Created process_sessions table")
+        print("[OK] Created/verified process_sessions table")
         
         # Create process_logs table
         cursor.execute("""
@@ -118,9 +107,7 @@ def init_database():
                 valve_position INTEGER,
                 status TEXT
             );
-        """)
-        
-        cursor.execute("""
+            
             CREATE INDEX idx_logs_session 
             ON process_logs(session_id, timestamp);
         """)
@@ -129,7 +116,7 @@ def init_database():
         
         # Create autoclave_programs table
         cursor.execute("""
-            CREATE TABLE autoclave_programs (
+            CREATE TABLE IF NOT EXISTS autoclave_programs (
                 id SERIAL PRIMARY KEY,
                 program_number INTEGER NOT NULL UNIQUE,
                 program_name VARCHAR(255) NOT NULL,
@@ -138,18 +125,27 @@ def init_database():
                 roll_category_name TEXT,
                 created_at TIMESTAMP DEFAULT NOW()
             );
-        """)
-        
-        cursor.execute("""
-            CREATE INDEX idx_program_number 
+            
+            CREATE INDEX IF NOT EXISTS idx_program_number 
             ON autoclave_programs(program_number);
         """)
         
-        print("[OK] Created autoclave_programs table")
+        print("[OK] Created/verified autoclave_programs table")
+        
+        # Add roll_category_name column if it doesn't exist
+        cursor.execute("""
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'autoclave_programs' 
+            AND column_name = 'roll_category_name'
+        """)
+        if cursor.fetchone() is None:
+            cursor.execute("ALTER TABLE autoclave_programs ADD COLUMN roll_category_name TEXT")
+            print("[OK] Added roll_category_name to autoclave_programs")
         
         # Create roll_categories table
         cursor.execute("""
-            CREATE TABLE roll_categories (
+            CREATE TABLE IF NOT EXISTS roll_categories (
                 id SERIAL PRIMARY KEY,
                 category_name TEXT UNIQUE NOT NULL,
                 is_active BOOLEAN DEFAULT true,
@@ -157,9 +153,9 @@ def init_database():
             );
         """)
         
-        print("[OK] Created roll_categories table")
+        print("[OK] Created/verified roll_categories table")
         
-        # Insert 25 predefined roll categories (reference data only)
+        # Insert 25 predefined roll categories
         roll_categories = [
             "TSL ECL ROLL (NBR)",
             "CGL-2 Alkali Roll (NBR)",
@@ -192,9 +188,47 @@ def init_database():
             cursor.execute("""
                 INSERT INTO roll_categories (category_name)
                 VALUES (%s)
+                ON CONFLICT (category_name) DO NOTHING
             """, (category,))
         
-        print(f"[OK] Inserted {len(roll_categories)} roll categories (reference data)")
+        print(f"[OK] Inserted {len(roll_categories)} roll categories")
+        
+        # Always check and add missing columns to process_sessions (migration)
+        print("[INFO] Checking and adding missing columns to process_sessions...")
+        new_columns = [
+            ('roll_category_name', 'TEXT'),
+            ('sub_roll_name', 'TEXT'),
+            ('roll_id', 'TEXT'),
+            ('operator_name', 'TEXT'),
+            ('number_of_rolls', 'INTEGER')
+        ]
+        
+        for col_name, col_type in new_columns:
+            cursor.execute("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'process_sessions' 
+                AND column_name = %s
+            """, (col_name,))
+            if cursor.fetchone() is None:
+                cursor.execute(f"ALTER TABLE process_sessions ADD COLUMN {col_name} {col_type}")
+                print(f"[OK] Added {col_name} to process_sessions")
+            else:
+                print(f"[OK] Column {col_name} already exists in process_sessions")
+        
+        # Always check and add missing columns to autoclave_programs (migration)
+        print("[INFO] Checking and adding missing columns to autoclave_programs...")
+        cursor.execute("""
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'autoclave_programs' 
+            AND column_name = 'roll_category_name'
+        """)
+        if cursor.fetchone() is None:
+            cursor.execute("ALTER TABLE autoclave_programs ADD COLUMN roll_category_name TEXT")
+            print("[OK] Added roll_category_name to autoclave_programs")
+        else:
+            print("[OK] Column roll_category_name already exists in autoclave_programs")
         
         # Commit changes
         conn.commit()
