@@ -41,11 +41,24 @@ RUN rm -rf /root/.pip && \
 # Copy requirements first for better caching
 COPY backend/requirements.txt .
 
-# Upgrade pip and setuptools first, then install Python dependencies with retry logic
-# SSL errors can occur due to network issues, so we retry with exponential backoff
-RUN pip install --upgrade pip setuptools wheel && \
+# Validate requirements.txt syntax first (fail fast on syntax errors)
+RUN python -c "import pkg_resources; list(pkg_resources.parse_requirements(open('requirements.txt')))" || \
+    (echo "ERROR: Invalid requirements.txt syntax!" && exit 1)
+
+# Upgrade pip and setuptools first
+RUN pip install --upgrade pip setuptools wheel
+
+# Download all packages first to validate they exist and catch errors early
+# This fails fast if any package is unavailable
+RUN pip download --no-cache-dir --prefer-binary -r requirements.txt -d /tmp/packages || \
+    (echo "ERROR: Failed to download packages. Check package names and versions." && exit 1)
+
+# Now install from downloaded packages (faster, and we know they're valid)
+RUN pip install --no-cache-dir --prefer-binary --find-links /tmp/packages --no-index -r requirements.txt || \
     for i in 1 2 3 4 5; do \
-        pip install --no-cache-dir -r requirements.txt && \
+        echo "=== Installation attempt $i ===" && \
+        pip install --no-cache-dir --prefer-binary --verbose -r requirements.txt && \
+        pip check && \
         break || (echo "Attempt $i failed, retrying..." && sleep $((i * 10))); \
     done
 
