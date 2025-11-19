@@ -46,6 +46,8 @@ export function ProgramSelection({
   const [rollId, setRollId] = useState<string>("");
   const [operatorName, setOperatorName] = useState<string>("");
   const [loading, setLoading] = useState(false);
+  const [loadingCategories, setLoadingCategories] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -68,16 +70,36 @@ export function ProgramSelection({
 
   const loadRollCategories = async () => {
     try {
+      setLoadingCategories(true);
+      setError(null);
       const response = await fetch(`${API_URL}/roll-categories`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
       const data = await response.json();
+      
+      if (!Array.isArray(data)) {
+        throw new Error('Invalid response format');
+      }
+      
       setRollCategories(data);
+      
+      if (data.length === 0) {
+        setError("No roll categories found. Please ensure the database is initialized.");
+      }
     } catch (error) {
       console.error('Failed to load roll categories:', error);
+      const errorMessage = error instanceof Error ? error.message : "Failed to load roll categories";
+      setError(errorMessage);
       toast({
         title: "Error",
-        description: "Failed to load roll categories",
+        description: errorMessage,
         variant: "destructive"
       });
+    } finally {
+      setLoadingCategories(false);
     }
   };
 
@@ -178,6 +200,49 @@ export function ProgramSelection({
     }
   };
 
+  // Show loading state
+  if (loadingCategories) {
+    return (
+      <div className="min-h-screen bg-background p-6 flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <div className="text-lg text-muted-foreground">Loading roll categories...</div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show error state
+  if (error && rollCategories.length === 0) {
+    return (
+      <div className="min-h-screen bg-background p-6">
+        <div className="max-w-7xl mx-auto space-y-6">
+          <div className="flex items-center justify-between">
+            <Button 
+              variant="outline" 
+              onClick={onBack}
+              className="gap-2"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Back to Mode Selection
+            </Button>
+            <h1 className="text-3xl font-bold text-foreground">
+              AUTO MODE - PROGRAM SELECTION
+            </h1>
+          </div>
+          <Card className="p-6 border-destructive">
+            <div className="text-center space-y-4">
+              <h2 className="text-2xl font-bold text-destructive">Error Loading Categories</h2>
+              <p className="text-muted-foreground">{error}</p>
+              <Button onClick={loadRollCategories} variant="outline">
+                Retry
+              </Button>
+            </div>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background p-6">
       <div className="max-w-7xl mx-auto space-y-6">
@@ -236,11 +301,15 @@ export function ProgramSelection({
                     <SelectValue placeholder="Select roll category" />
                   </SelectTrigger>
                   <SelectContent>
-                    {rollCategories.map((category) => (
-                      <SelectItem key={category.id} value={category.category_name}>
-                        {category.category_name}
-                      </SelectItem>
-                    ))}
+                    {rollCategories.length > 0 ? (
+                      rollCategories.map((category) => (
+                        <SelectItem key={category.id} value={category.category_name}>
+                          {category.category_name}
+                        </SelectItem>
+                      ))
+                    ) : (
+                      <SelectItem value="" disabled>No categories available</SelectItem>
+                    )}
                   </SelectContent>
                 </Select>
               </div>
