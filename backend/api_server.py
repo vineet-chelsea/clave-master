@@ -317,49 +317,70 @@ def generate_pdf_report(session_id):
         )
         
         # PAGE 1: Title and Charts
-        # Title section - build title with available parameters
-        title_parts = []
+        # Title section
+        story.append(Paragraph("AUTOCLAVE PROCESS REPORT", title_style))
+        story.append(Spacer(1, 0.1*inch))
+        
+        # Session Information Table
+        info_data = []
+        
+        # Roll Category Name
         if roll_category_name:
-            title_parts.append(f"Roll Name: {roll_category_name}")
-        # Timestamp is current time when report is generated (IST)
-        title_parts.append(f"Timestamp: {get_ist_now().strftime('%Y-%m-%d %H:%M:%S')}")
-        if number_of_rolls:
-            title_parts.append(f"Qty: {number_of_rolls}")
-        if sub_roll_name:
-            title_parts.append(f"Sub Roll Name: {sub_roll_name}")
-        if start_time:
-            title_parts.append(f"Start Time: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
-        
-        # For manual processes, use program_name if roll_category_name not available
-        if not title_parts and program_name:
-            title_parts.append(f"Program: {program_name}")
-            if start_time:
-                title_parts.append(f"Start Time: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
-        
-        # Format title to fit A4 width - break into multiple lines if needed
-        title_text = " | ".join(title_parts) if title_parts else f"Session Report - Session {session_id}"
-        # Split long titles into multiple lines for better A4 fit
-        if len(title_text) > 80:
-            # Try to break at logical points
-            parts = title_text.split(" | ")
-            if len(parts) > 3:
-                mid = len(parts) // 2
-                title_line1 = " | ".join(parts[:mid])
-                title_line2 = " | ".join(parts[mid:])
-                story.append(Paragraph(title_line1, title_style))
-                story.append(Paragraph(title_line2, title_style))
-            else:
-                story.append(Paragraph(title_text, title_style))
+            info_data.append(['Roll Category Name:', roll_category_name])
+        elif program_name:
+            info_data.append(['Program Name:', program_name])
         else:
-            story.append(Paragraph(title_text, title_style))
-        story.append(Spacer(1, 0.15*inch))
+            info_data.append(['Program Name:', f'Session {session_id}'])
+        
+        # Roll Name (Sub-Roll Name)
+        if sub_roll_name:
+            info_data.append(['Roll Name:', sub_roll_name])
+        elif roll_category_name:
+            info_data.append(['Roll Name:', roll_category_name])
+        
+        # Quantity
+        if number_of_rolls:
+            info_data.append(['Quantity:', str(number_of_rolls)])
         
         # Operator Name
         if operator_name:
-            story.append(Paragraph(f"Operator Name: {operator_name}", heading_style))
-            story.append(Spacer(1, 0.08*inch))
+            info_data.append(['Operator Name:', operator_name])
         
-        story.append(Spacer(1, 0.15*inch))
+        # Roll ID
+        if roll_id:
+            info_data.append(['Roll ID:', roll_id])
+        
+        # Session timing
+        if start_time:
+            info_data.append(['Start Time:', start_time.strftime('%Y-%m-%d %H:%M:%S')])
+        if end_time:
+            info_data.append(['End Time:', end_time.strftime('%Y-%m-%d %H:%M:%S')])
+        if duration_minutes:
+            info_data.append(['Duration:', f'{duration_minutes} minutes'])
+        
+        # Report generation timestamp
+        info_data.append(['Report Generated:', get_ist_now().strftime('%Y-%m-%d %H:%M:%S')])
+        
+        # Create information table
+        if info_data:
+            info_table = Table(info_data, colWidths=[2.2*inch, 4.3*inch])
+            info_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
+                ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
+                ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+                ('ALIGN', (1, 0), (1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+                ('FONTNAME', (1, 0), (1, -1), 'Helvetica'),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+                ('LEADING', (0, 0), (-1, -1), 11),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+                ('TOPPADDING', (0, 0), (-1, -1), 6),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+                ('VALIGN', (0, 0), (-1, -1), 'TOP')
+            ]))
+            story.append(info_table)
+        
+        story.append(Spacer(1, 0.2*inch))
         
         # Prepare data for charts - use ALL readings for entire session
         timestamps = [r[0] for r in readings]
@@ -713,51 +734,20 @@ def get_program_by_category():
         
         # Find program by roll category name
         cursor.execute("""
-            SELECT id, program_number, program_name, description, steps, roll_category_name
+            SELECT id, program_number, program_name, description, steps
             FROM autoclave_programs
             WHERE roll_category_name = %s
             LIMIT 1
         """, (roll_category_name,))
         
         row = cursor.fetchone()
-        
-        if not row:
-            # Check if any programs exist at all
-            cursor.execute("SELECT COUNT(*) FROM autoclave_programs")
-            total_programs = cursor.fetchone()[0]
-            
-            # Check if programs exist but don't have roll_category_name set
-            cursor.execute("""
-                SELECT COUNT(*) FROM autoclave_programs 
-                WHERE roll_category_name IS NULL OR roll_category_name = ''
-            """)
-            programs_without_category = cursor.fetchone()[0]
-            
-            # Get list of available roll categories that have programs
-            cursor.execute("""
-                SELECT DISTINCT roll_category_name 
-                FROM autoclave_programs 
-                WHERE roll_category_name IS NOT NULL AND roll_category_name != ''
-            """)
-            available_categories = [row[0] for row in cursor.fetchall()]
-            
-            cursor.close()
-            conn.close()
-            
-            error_msg = f'No program found for roll category: {roll_category_name}'
-            if total_programs == 0:
-                error_msg += '. No programs are configured in the database.'
-            elif programs_without_category > 0:
-                error_msg += f'. Found {programs_without_category} program(s) without roll category assigned.'
-            if available_categories:
-                error_msg += f' Available categories: {", ".join(available_categories[:10])}'
-            
-            return jsonify({'error': error_msg}), 404
-        
         cursor.close()
         conn.close()
         
-        program_id, program_number, program_name, description, steps, _ = row
+        if not row:
+            return jsonify({'error': f'No program found for roll category: {roll_category_name}'}), 404
+        
+        program_id, program_number, program_name, description, steps = row
         
         # Calculate steps based on quantity
         # Determine quantity range (1-3 or 4+)
@@ -816,7 +806,7 @@ def start_auto_program():
             
             # Find program by roll category name
             cursor.execute("""
-                SELECT id, program_number, program_name, description, steps, roll_category_name
+                SELECT id, program_number, program_name, description, steps
                 FROM autoclave_programs
                 WHERE roll_category_name = %s
                 LIMIT 1
@@ -825,39 +815,11 @@ def start_auto_program():
             row = cursor.fetchone()
             
             if not row:
-                # Check if any programs exist at all
-                cursor.execute("SELECT COUNT(*) FROM autoclave_programs")
-                total_programs = cursor.fetchone()[0]
-                
-                # Check if programs exist but don't have roll_category_name set
-                cursor.execute("""
-                    SELECT COUNT(*) FROM autoclave_programs 
-                    WHERE roll_category_name IS NULL OR roll_category_name = ''
-                """)
-                programs_without_category = cursor.fetchone()[0]
-                
-                # Get list of available roll categories that have programs
-                cursor.execute("""
-                    SELECT DISTINCT roll_category_name 
-                    FROM autoclave_programs 
-                    WHERE roll_category_name IS NOT NULL AND roll_category_name != ''
-                """)
-                available_categories = [row[0] for row in cursor.fetchall()]
-                
                 cursor.close()
                 conn.close()
-                
-                error_msg = f'No program found for roll category: {roll_category_name}'
-                if total_programs == 0:
-                    error_msg += '. No programs are configured in the database.'
-                elif programs_without_category > 0:
-                    error_msg += f'. Found {programs_without_category} program(s) without roll category assigned.'
-                if available_categories:
-                    error_msg += f' Available categories: {", ".join(available_categories[:10])}'
-                
-                return jsonify({'success': False, 'error': error_msg}), 404
+                return jsonify({'success': False, 'error': f'No program found for roll category: {roll_category_name}'}), 404
             
-            program_id, program_number, program_name, description, steps, _ = row
+            program_id, program_number, program_name, description, steps = row
             
             # Calculate steps based on quantity
             # Determine quantity range (1-3 or 4+)
