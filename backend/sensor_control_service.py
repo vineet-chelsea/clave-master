@@ -750,10 +750,23 @@ class SensorControlService:
             pass
     
     def start_control_session(self, target_pressure, duration_minutes, program_name="Manual Control", steps_data=None, existing_session_id=None):
-        """Start a new control session"""
+        """
+        Start a new control session
+        
+        CRITICAL: For auto programs (when steps_data is provided):
+        - NEVER creates a session
+        - ONLY uses API-created sessions
+        - Returns False if no API-created session is found
+        - This prevents duplicate sessions without roll details
+        """
         if not self.conn:
             print("[ERROR] Database not connected")
             return False
+        
+        # ABSOLUTE CHECK: If steps_data exists, this is an auto program
+        # Auto programs MUST have an API-created session - we NEVER create one here
+        if steps_data and not existing_session_id and (not hasattr(self, 'session_id') or not self.session_id):
+            print(f"[CRITICAL] Auto program detected (steps_data exists) but no session_id provided. Must find API-created session.")
         
         # Check if control is already active - prevent duplicate control loops
         if self.control_active:
