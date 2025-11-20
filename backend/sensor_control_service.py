@@ -948,11 +948,27 @@ class SensorControlService:
         no_active_session_count = 0
         
         print(f"[CONTROL] Control loop started for session {self.session_id}")
-        print(f"[CONTROL] end_time: {self.end_time}, duration: {self.remaining_minutes} min")
+        if self.end_time:
+            print(f"[CONTROL] end_time: {self.end_time}, duration: {self.remaining_minutes} min")
+            end_datetime = datetime.fromtimestamp(self.end_time, IST)
+            print(f"[CONTROL] Will complete at: {end_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
+        else:
+            print(f"[CONTROL] WARNING: No end_time set!")
         
+        loop_iteration = 0
         while self.control_active:
-            # Check if session is still active in database
-            if self.conn and self.session_id:
+            loop_iteration += 1
+            # Log every 60 iterations (1 minute) to show loop is running
+            if loop_iteration % 60 == 0:
+                if self.end_time:
+                    remaining = self.end_time - get_ist_now().timestamp()
+                    print(f"[CONTROL] Loop running - iteration {loop_iteration}, {remaining:.1f}s remaining")
+                else:
+                    print(f"[CONTROL] Loop running - iteration {loop_iteration} (no end_time)")
+            
+            try:
+                # Check if session is still active in database
+                if self.conn and self.session_id:
                 try:
                     cursor = self.conn.cursor()
                     cursor.execute(
@@ -1012,107 +1028,123 @@ class SensorControlService:
                             time.sleep(1)
                 except Exception as e:
                     pass  # Continue if database check fails
-            
-            # ===== COMPLETION CHECKS (Independent of RS485) =====
-            
-            # 1. Check if total time has elapsed (for manual or total duration)
-            if self.end_time:
-                current_time = get_ist_now().timestamp()
-                time_remaining = self.end_time - current_time
                 
-                # Debug logging every 10 seconds when close to completion
-                if not hasattr(self, '_last_completion_log') or (time.time() - self._last_completion_log) >= 10:
-                    print(f"[CONTROL] Session {self.session_id} - end_time: {self.end_time}, current: {current_time}, remaining: {time_remaining:.1f}s ({time_remaining/60:.2f} min)")
-                    self._last_completion_log = time.time()
+                # ===== COMPLETION CHECKS (Independent of RS485) =====
                 
-                if current_time >= self.end_time:
-                    print(f"[COMPLETE] Time elapsed for session {self.session_id}")
-                    print(f"[COMPLETE] end_time: {self.end_time}, current_time: {current_time}, diff: {current_time - self.end_time:.1f}s")
-                    self.complete_session()
-                    break
-            else:
-                if not hasattr(self, '_no_end_time_warning'):
-                    print(f"[WARNING] Session {self.session_id} has no end_time set!")
-                    self._no_end_time_warning = True
-            
-            # 2. Check for step completion (multi-step programs) - works without RS485
-            if self.program_steps and self.current_step_index < len(self.program_steps):
-                if self.check_step_completion():
-                    print(f"[STEP] Step {self.current_step_index + 1} completed, advancing to next step")
-                    self.advance_to_next_step()
-                    # After advancing, check if all steps are done (advance_to_next_step calls complete_session if done)
+                # 1. Check if total time has elapsed (for manual or total duration)
+                if self.end_time:
+                    current_time = get_ist_now().timestamp()
+                    time_remaining = self.end_time - current_time
+                    
+                    # Debug logging every 10 seconds when close to completion
+                    if not hasattr(self, '_last_completion_log') or (time.time() - self._last_completion_log) >= 10:
+                        print(f"[CONTROL] Session {self.session_id} - end_time: {self.end_time}, current: {current_time}, remaining: {time_remaining:.1f}s ({time_remaining/60:.2f} min)")
+                        self._last_completion_log = time.time()
+                    
+                    if current_time >= self.end_time:
+                        print(f"[COMPLETE] Time elapsed for session {self.session_id}")
+                        print(f"[COMPLETE] end_time: {self.end_time}, current_time: {current_time}, diff: {current_time - self.end_time:.1f}s")
+                        self.complete_session()
+                        break
+                else:
+                    if not hasattr(self, '_no_end_time_warning'):
+                        print(f"[WARNING] Session {self.session_id} has no end_time set!")
+                        self._no_end_time_warning = True
+                
+                # 2. Check for step completion (multi-step programs) - works without RS485
+                if self.program_steps and self.current_step_index < len(self.program_steps):
+                    if self.check_step_completion():
+                        print(f"[STEP] Step {self.current_step_index + 1} completed, advancing to next step")
+                        self.advance_to_next_step()
+                        # After advancing, check if all steps are done (advance_to_next_step calls complete_session if done)
+                        time.sleep(1)
+                        continue
+                
+                # 3. Update remaining time (works without RS485)
+                if self.end_time:
+                    remaining_seconds = self.end_time - get_ist_now().timestamp()
+                    self.remaining_minutes = max(0, int(remaining_seconds / 60) + 1)
+                
+                # ===== SENSOR READING (RS485 dependent) =====
+                pressure = self.read_pressure()
+                temperature = self.read_temperature()
+                valve_position = self.read_valve_position()
+                
+                # If no PLC connection, just wait and continue (completion checks above will still work)
+                if pressure is None:
                     time.sleep(1)
                     continue
-            
-            # 3. Update remaining time (works without RS485)
-            if self.end_time:
-                remaining_seconds = self.end_time - get_ist_now().timestamp()
-                self.remaining_minutes = max(0, int(remaining_seconds / 60) + 1)
-            
-            # ===== SENSOR READING (RS485 dependent) =====
-            pressure = self.read_pressure()
-            temperature = self.read_temperature()
-            valve_position = self.read_valve_position()
-            
-            # If no PLC connection, just wait and continue (completion checks above will still work)
-            if pressure is None:
+                
+                # ===== CONTROL LOGIC (Only runs if we have sensor readings) =====
+                
+                # Only control if session status is 'running'
+                if self.conn and self.session_id:
+                    try:
+                        cursor = self.conn.cursor()
+                        cursor.execute(
+                            "SELECT status FROM process_sessions WHERE id=%s",
+                            (self.session_id,)
+                        )
+                        status = cursor.fetchone()[0]
+                        cursor.close()
+                        
+                        if status == 'running':
+                            no_active_session_count = 0  # Reset safety counter
+                            # Control logic every 15 seconds
+                            control_count += 1
+                            if control_count >= CONTROL_INTERVAL:
+                                control_count = 0
+                                
+                                pressure_diff = float(pressure) - float(self.target_pressure)
+                                
+                                if abs(pressure_diff) > PRESSURE_TOLERANCE:
+                                    if pressure_diff < 0:
+                 #                                    new_valve = min(self.valve_position - 200, MAX_VALVE_VALUE)
+                                        new_valve = max(self.valve_position - 800, 0)
+                                        
+                                        success = self.set_valve_position(new_valve)
+                                        if success:
+                                            print(f"[CONTROL] Pressure low ({pressure:.1f}), decreasing valve to {new_valve}")
+                                    else:
+                                        new_valve = min(self.valve_position + 800,MAX_VALVE_VALUE)
+                                        success = self.set_valve_position(new_valve)
+                                        if success:
+                #                                        print(f"[CONTROL] Pressure high ({pressure:.1f}), increasing valve to {new_valve}")										
+                                            print(f"[CONTROL] Pressure high ({pressure:.1f}), increasing valve to {new_valve}")
+                        elif status == 'paused':
+                            no_active_session_count = 0  # Reset counter (paused is valid)
+                            print("[CONTROL] Paused - no valve adjustments")
+                        else:
+                            # Unexpected status - increment safety counter
+                            no_active_session_count += 1
+                            if no_active_session_count > 300:
+                                print("[SAFETY] Session lost, stopping control and closing valve")
+                                self.control_active = False
+                                self.set_valve_position(0)
+                                break
+                    except Exception as e:
+                        pass  # Continue if check fails
+                
+                # Log to database (only if we have readings)
+                if pressure is not None:
+                    self.save_process_log(pressure, temperature, valve_position)
+                
                 time.sleep(1)
-                continue
-            
-            # ===== CONTROL LOGIC (Only runs if we have sensor readings) =====
-            
-            # Only control if session status is 'running'
-            if self.conn and self.session_id:
-                try:
-                    cursor = self.conn.cursor()
-                    cursor.execute(
-                        "SELECT status FROM process_sessions WHERE id=%s",
-                        (self.session_id,)
-                    )
-                    status = cursor.fetchone()[0]
-                    cursor.close()
-                    
-                    if status == 'running':
-                        no_active_session_count = 0  # Reset safety counter
-                        # Control logic every 15 seconds
-                        control_count += 1
-                        if control_count >= CONTROL_INTERVAL:
-                            control_count = 0
-                            
-                            pressure_diff = float(pressure) - float(self.target_pressure)
-                            
-                            if abs(pressure_diff) > PRESSURE_TOLERANCE:
-                                if pressure_diff < 0:
-             #                                    new_valve = min(self.valve_position - 200, MAX_VALVE_VALUE)
-                                    new_valve = max(self.valve_position - 800, 0)
-                                    
-                                    success = self.set_valve_position(new_valve)
-                                    if success:
-                                        print(f"[CONTROL] Pressure low ({pressure:.1f}), decreasing valve to {new_valve}")
-                                else:
-                                    new_valve = min(self.valve_position + 800,MAX_VALVE_VALUE)
-                                    success = self.set_valve_position(new_valve)
-                                    if success:
-            #                                        print(f"[CONTROL] Pressure high ({pressure:.1f}), increasing valve to {new_valve}")										
-                                        print(f"[CONTROL] Pressure high ({pressure:.1f}), increasing valve to {new_valve}")
-                    elif status == 'paused':
-                        no_active_session_count = 0  # Reset counter (paused is valid)
-                        print("[CONTROL] Paused - no valve adjustments")
-                    else:
-                        # Unexpected status - increment safety counter
-                        no_active_session_count += 1
-                        if no_active_session_count > 300:
-                            print("[SAFETY] Session lost, stopping control and closing valve")
-                            self.control_active = False
-                            self.set_valve_position(0)
-                            break
-                except Exception as e:
-                    pass  # Continue if check fails
-            
-            # Log to database
-            self.save_process_log(pressure, temperature, valve_position)
-            
-            time.sleep(1)
+            except Exception as e:
+                # Don't let RS485 errors stop the control loop
+                if "tty" in str(e).lower() or "serial" in str(e).lower() or "modbus" in str(e).lower():
+                    # RS485 error - just continue, completion checks will still work
+                    if loop_iteration % 60 == 0:  # Log every minute
+                        print(f"[CONTROL] RS485 error (continuing): {type(e).__name__}")
+                    time.sleep(1)
+                    continue
+                else:
+                    # Other error - log and continue
+                    print(f"[ERROR] Control loop error: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    time.sleep(1)
+                    continue
     
     def complete_session(self):
         """Complete the current control session - Independent of RS485"""
