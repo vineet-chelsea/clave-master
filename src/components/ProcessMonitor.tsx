@@ -347,9 +347,25 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
   const handleStop = async () => {
     console.log('Stopping process...');
     
+    // Fetch latest session status before checking to avoid race conditions
+    let currentStatus = sessionData?.status;
+    if (sessionId) {
+      try {
+        const response = await fetch(`${API_URL}/sessions`);
+        const sessions = await response.json();
+        const currentSession = sessions.find((s: any) => s.id.toString() === sessionId);
+        if (currentSession) {
+          currentStatus = currentSession.status;
+          setSessionData(currentSession); // Update state with latest data
+        }
+      } catch (e) {
+        console.error('Failed to fetch latest session status:', e);
+      }
+    }
+    
     // If session is already completed, don't call stop API - just go back
     // This preserves the 'completed' status instead of changing it to 'stopped'
-    if (sessionData?.status === 'completed') {
+    if (currentStatus === 'completed') {
       console.log('Session already completed, skipping stop API call to preserve completed status');
       toast({
         title: "Process Completed",

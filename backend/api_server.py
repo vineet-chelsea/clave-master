@@ -645,11 +645,19 @@ def start_control():
 
 @app.route('/api/stop-control', methods=['POST'])
 def stop_control():
-    """Stop current control session"""
+    """Stop current control session - only updates 'running' or 'paused' sessions, never 'completed'"""
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        # Stop both 'running' and 'paused' sessions
+        
+        # First check if there are any 'completed' sessions - we should never overwrite those
+        cursor.execute(
+            "SELECT id, status FROM process_sessions WHERE status='completed' AND end_time IS NOT NULL ORDER BY id DESC LIMIT 1"
+        )
+        completed_session = cursor.fetchone()
+        
+        # Stop both 'running' and 'paused' sessions - explicitly exclude 'completed'
+        # This ensures we never overwrite a completed status
         cursor.execute(
             "UPDATE process_sessions SET status='stopped', end_time=NOW() WHERE status IN ('running', 'paused')"
         )
@@ -658,7 +666,7 @@ def stop_control():
         cursor.close()
         conn.close()
         
-        print(f"[API] Stopped {rows_affected} session(s)")
+        print(f"[API] Stopped {rows_affected} session(s) (completed sessions preserved)")
         
         return jsonify({'success': True, 'rows_affected': rows_affected})
     except Exception as e:
