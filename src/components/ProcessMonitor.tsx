@@ -442,10 +442,17 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
     }
 
     // Stop session via API (only if not already completed)
+    // Pass sessionId to backend so it can check the specific session's status
     try {
-      const response = await fetch(`${API_URL}/stop-control`, { method: 'POST' });
+      const response = await fetch(`${API_URL}/stop-control`, { 
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ session_id: sessionId })
+      });
       const result = await response.json();
-      console.log('Stop API response:', result);
+      console.log('[handleStop] Stop API response:', result);
       
       // Check if the API response indicates the session was already completed
       if (result.message && (

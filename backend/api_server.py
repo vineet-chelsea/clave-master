@@ -754,12 +754,75 @@ def start_control():
 
 @app.route('/api/stop-control', methods=['POST'])
 def stop_control():
-    """Stop current control session - only updates 'running' or 'paused' sessions, never 'completed'"""
+    """Stop current control session - checks specific session ID if provided, never updates 'completed' sessions"""
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # Get the most recent running or paused session (the active one)
+        # Get session_id from request body if provided
+        session_id = None
+        if request.is_json:
+            data = request.get_json()
+            session_id = data.get('session_id') if data else None
+        
+        # If session_id is provided, check that specific session
+        if session_id:
+            try:
+                session_id = int(session_id)
+            except (ValueError, TypeError):
+                cursor.close()
+                conn.close()
+                return jsonify({'success': False, 'error': 'Invalid session_id'}), 400
+            
+            # Get the specific session's status
+            cursor.execute(
+                "SELECT id, status FROM process_sessions WHERE id=%s",
+                (session_id,)
+            )
+            session = cursor.fetchone()
+            
+            if not session:
+                cursor.close()
+                conn.close()
+                print(f"[API] Session {session_id} not found")
+                return jsonify({'success': False, 'error': 'Session not found'}), 404
+            
+            found_session_id, current_status = session
+            
+            # CRITICAL: Never update if status is 'completed'
+            if current_status == 'completed':
+                cursor.close()
+                conn.close()
+                print(f"[API] Session {session_id} is already completed, refusing to update")
+                return jsonify({
+                    'success': True, 
+                    'rows_affected': 0, 
+                    'message': 'Session already completed'
+                })
+            
+            # Only update if status is 'running' or 'paused'
+            if current_status in ('running', 'paused'):
+                cursor.execute(
+                    "UPDATE process_sessions SET status='stopped', end_time=NOW() WHERE id=%s AND status IN ('running', 'paused')",
+                    (session_id,)
+                )
+                rows_affected = cursor.rowcount
+                conn.commit()
+                print(f"[API] Stopped session {session_id} (status was: {current_status})")
+            else:
+                rows_affected = 0
+                print(f"[API] Session {session_id} has status '{current_status}', not updating")
+            
+            cursor.close()
+            conn.close()
+            
+            return jsonify({
+                'success': True, 
+                'rows_affected': rows_affected,
+                'message': 'Session already completed' if current_status == 'completed' else None
+            })
+        
+        # Fallback: If no session_id provided, get the most recent running or paused session
         cursor.execute(
             "SELECT id, status FROM process_sessions WHERE status IN ('running', 'paused') ORDER BY id DESC LIMIT 1"
         )
@@ -767,7 +830,6 @@ def stop_control():
         
         if not active_session:
             # Check if there's a recently completed session (within last minute)
-            # This helps detect if user is trying to stop a just-completed session
             cursor.execute(
                 "SELECT id, status FROM process_sessions WHERE status='completed' AND end_time > NOW() - INTERVAL '1 minute' ORDER BY id DESC LIMIT 1"
             )
