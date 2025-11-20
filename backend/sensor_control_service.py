@@ -1414,20 +1414,42 @@ class SensorControlService:
                                     print(f"\n[NEW SESSION] Detected session {session_id}")
                                     print(f"     Target: {float(target_pressure) if target_pressure else 'N/A'} PSI")
                                     print(f"     Duration: {duration_minutes if duration_minutes else 'N/A'} minutes")
+                                    
+                                    # CRITICAL: Determine if this is an auto program
+                                    # If roll_category_name exists, it's definitely an auto program (even if steps_data is None)
+                                    is_auto_program = bool(roll_category_name) or bool(steps_data)
+                                    
                                     if roll_category_name:
                                         print(f"     Type: Auto Program (Roll Category: {roll_category_name})")
                                     elif steps_data:
                                         print(f"     Type: Auto Program ({len(steps_data) if isinstance(steps_data, (list, dict)) else 'N/A'} steps)")
                                     else:
                                         print(f"     Type: Manual Mode")
+                                    
                                     self.last_checked_session_id = session_id
+                                    
+                                    # CRITICAL: For auto programs, ensure steps_data is set (even if None from DB)
+                                    # This prevents the sensor service from thinking it's manual mode
+                                    if is_auto_program and not steps_data:
+                                        # It's an auto program but steps_data is None - fetch it from the session
+                                        cursor.execute(
+                                            "SELECT steps_data FROM process_sessions WHERE id=%s",
+                                            (session_id,)
+                                        )
+                                        steps_row = cursor.fetchone()
+                                        if steps_row and steps_row[0]:
+                                            steps_data = steps_row[0]
+                                        else:
+                                            # Still an auto program (has roll_category_name), use empty list to indicate auto program
+                                            steps_data = []
+                                    
                                     # Pass session_id to prevent duplicate session creation
                                     # For auto programs (with roll_category_name or steps_data), NEVER create - only use API session
                                     self.start_control_session(
                                         float(target_pressure) if target_pressure else 0, 
                                         int(duration_minutes) if duration_minutes else 0, 
                                         program_name, 
-                                        steps_data, 
+                                        steps_data if is_auto_program else steps_data,  # Ensure steps_data is passed for auto programs
                                         existing_session_id=session_id
                                     )
                         except Exception as e:
