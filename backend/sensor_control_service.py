@@ -781,18 +781,50 @@ class SensorControlService:
             # If session_id is provided (from API), use it directly
             if existing_session_id:
                 cursor = self.conn.cursor()
-                cursor.execute(
-                    "SELECT id FROM process_sessions WHERE id=%s AND status='running'",
-                    (existing_session_id,)
-                )
-                result = cursor.fetchone()
-                cursor.close()
-                if result:
-                    self.session_id = existing_session_id
-                    print(f"[SESSION] Using provided session {self.session_id}")
+                # For auto programs, retry multiple times to find the session (API might still be committing)
+                import time
+                max_retries = 10 if steps_data else 3
+                found_session = False
+                
+                for attempt in range(max_retries):
+                    cursor.execute(
+                        "SELECT id FROM process_sessions WHERE id=%s AND status='running'",
+                        (existing_session_id,)
+                    )
+                    result = cursor.fetchone()
+                    
+                    if result:
+                        self.session_id = existing_session_id
+                        print(f"[SESSION] Using provided session {self.session_id}")
+                        found_session = True
+                        cursor.close()
+                        break
+                    elif attempt < max_retries - 1:
+                        # Wait and retry (API might still be committing transaction)
+                        time.sleep(0.3)
+                        cursor.close()
+                        cursor = self.conn.cursor()
+                    else:
+                        # Last attempt failed
+                        cursor.close()
+                        if steps_data:
+                            # Auto program - NEVER create new session, only use API-created one
+                            print(f"[ERROR] Provided auto program session {existing_session_id} not found after {max_retries} retries. API must create sessions for auto programs.")
+                            return False
+                        else:
+                            # Manual mode - can create new session as fallback
+                            print(f"[WARNING] Provided session {existing_session_id} not found, will create new one")
+                            existing_session_id = None
+                
+                if found_session:
+                    # Session found, skip the rest of the session creation logic
+                    pass
+                elif not steps_data:
+                    # Manual mode fallback - continue to create session
+                    pass
                 else:
-                    print(f"[WARNING] Provided session {existing_session_id} not found or not running, will create new one")
-                    existing_session_id = None
+                    # Auto program - session not found, return False
+                    return False
             
             # If no session_id provided or session not found, try to find existing or create new
             if not existing_session_id:
