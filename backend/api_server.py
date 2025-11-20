@@ -971,15 +971,17 @@ def start_auto_program():
             # Session already exists - use it instead of creating duplicate
             session_id = existing_session[0]
             print(f"[API] Found existing session {session_id}, using it instead of creating duplicate")
-            # Update the existing session with any new details if needed
+            # Update the existing session with roll details - ALWAYS set these values to ensure they're populated
             cursor.execute("""
                 UPDATE process_sessions 
-                SET target_pressure=%s, duration_minutes=%s, steps_data=%s::jsonb,
-                    roll_category_name=COALESCE(NULLIF(roll_category_name, ''), %s),
-                    sub_roll_name=COALESCE(NULLIF(sub_roll_name, ''), %s),
-                    roll_id=COALESCE(NULLIF(roll_id, ''), %s),
-                    operator_name=COALESCE(NULLIF(operator_name, ''), %s),
-                    number_of_rolls=COALESCE(number_of_rolls, %s)
+                SET target_pressure=%s,
+                    duration_minutes=%s,
+                    steps_data=%s::jsonb,
+                    roll_category_name=%s,
+                    sub_roll_name=%s,
+                    roll_id=%s,
+                    operator_name=%s,
+                    number_of_rolls=%s
                 WHERE id=%s
             """, (
                 target_pressure, total_duration, steps_json,
@@ -987,6 +989,7 @@ def start_auto_program():
                 session_id
             ))
             conn.commit()
+            print(f"[API] Updated existing session {session_id} with roll details: category={roll_category_name}, qty={number_of_rolls}, operator={operator_name}")
         else:
             # Double-check: Also check for ANY running session with same program_name in last 5 seconds
             # (in case roll_category_name wasn't set yet)
