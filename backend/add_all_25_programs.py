@@ -34,6 +34,16 @@ def connect_db():
         print(f"[ERROR] Failed to connect to database: {e}")
         sys.exit(1)
 
+def ensure_roll_category(cursor, category_name):
+    """Ensure a roll category exists in the roll_categories table"""
+    cursor.execute("""
+        INSERT INTO roll_categories (category_name, is_active)
+        VALUES (%s, true)
+        ON CONFLICT (category_name) DO UPDATE SET is_active = true
+        RETURNING id
+    """, (category_name,))
+    return cursor.fetchone()[0]
+
 def add_all_programs():
     """Add all 25 roll programs to database"""
     conn = connect_db()
@@ -458,6 +468,9 @@ def add_all_programs():
         description = program['description']
         base_steps = program['base_steps']
         quantity_variations = program.get('quantity_variations', {})
+        
+        # Ensure roll category exists in roll_categories table
+        ensure_roll_category(cur, roll_category_name)
         
         # Build steps structure
         if quantity_variations:
