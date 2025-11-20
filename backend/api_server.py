@@ -808,13 +808,51 @@ def stop_control():
             
             # Only update if status is 'running' or 'paused'
             if current_status in ('running', 'paused'):
+                # Simple final check: Query DB one more time right before UPDATE to ensure status hasn't changed
+                cursor.execute(
+                    "SELECT status FROM process_sessions WHERE id=%s",
+                    (session_id,)
+                )
+                final_status_check = cursor.fetchone()
+                
+                if not final_status_check:
+                    cursor.close()
+                    conn.close()
+                    print(f"[API] Final check: Session {session_id} not found")
+                    return jsonify({'success': False, 'error': 'Session not found'}), 404
+                
+                final_status = final_status_check[0]
+                
+                # If status is 'completed', refuse to update
+                if final_status == 'completed':
+                    cursor.close()
+                    conn.close()
+                    print(f"[API] Final check: Session {session_id} is completed, refusing to update")
+                    return jsonify({
+                        'success': True, 
+                        'rows_affected': 0, 
+                        'message': 'Session already completed'
+                    })
+                
+                # Only proceed if status is still 'running' or 'paused'
+                if final_status not in ('running', 'paused'):
+                    cursor.close()
+                    conn.close()
+                    print(f"[API] Final check: Session {session_id} has status '{final_status}', not updating")
+                    return jsonify({
+                        'success': True, 
+                        'rows_affected': 0,
+                        'message': f"Session status is '{final_status}', cannot stop"
+                    })
+                
+                # Now safe to update - status is confirmed to be 'running' or 'paused'
                 cursor.execute(
                     "UPDATE process_sessions SET status='stopped', end_time=NOW() WHERE id=%s AND status IN ('running', 'paused')",
                     (session_id,)
                 )
                 rows_affected = cursor.rowcount
                 conn.commit()
-                print(f"[API] Stopped session {session_id} (status was: {current_status}), rows_affected: {rows_affected}")
+                print(f"[API] Stopped session {session_id} (status was: {final_status}), rows_affected: {rows_affected}")
             else:
                 rows_affected = 0
                 print(f"[API] Session {session_id} has status '{current_status}', not updating")
