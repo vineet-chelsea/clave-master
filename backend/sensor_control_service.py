@@ -886,7 +886,28 @@ class SensorControlService:
                 
                 # CRITICAL: If this is an auto program (has steps_data), NEVER create a session
                 # Only the API should create auto program sessions
+                # Also, check for ANY running session first - if one exists, use it (API might be updating it)
                 if steps_data:
+                    # First, check for ANY running session (even without roll details) - API might be creating/updating it
+                    cursor.execute(
+                        """SELECT id FROM process_sessions 
+                           WHERE status='running' 
+                           ORDER BY id DESC 
+                           LIMIT 1
+                           FOR UPDATE"""
+                    )
+                    any_running = cursor.fetchone()
+                    
+                    if any_running:
+                        # Found ANY running session - use it (API might be updating it with roll details)
+                        self.session_id = any_running[0]
+                        print(f"[SESSION] Found running session {self.session_id}, using it (API may be updating with roll details)")
+                        conn.commit()
+                        cursor.close()
+                        # Skip to end, don't create new session
+                        existing_session_id = self.session_id
+                    else:
+                        # No running session - wait for API to create one
                     # Auto program - must find API-created session, retry multiple times
                     # Check for sessions with roll_category_name OR steps_data (both indicate API-created auto program)
                     for attempt in range(15):  # Even more retries for auto programs
