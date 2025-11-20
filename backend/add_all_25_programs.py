@@ -432,11 +432,20 @@ def add_all_programs():
                     'final_step': {'psi_range': '45-45', 'duration_minutes': 180, 'action': 'steady'}  # 3 Hrs.
                 }
             }
+        },
+        {
+            'roll_category_name': 'Test Program',
+            'program_name': 'Test Program',
+            'description': 'Quick test program - 0.1 minutes at 1 PSI for testing purposes',
+            'base_steps': [
+                {'psi_range': '1', 'duration_minutes': 0.1, 'action': 'steady'}
+            ],
+            'quantity_variations': {}  # No quantity variations for test program
         }
     ]
     
     print("="*60)
-    print("Adding All 25 Roll Programs to Database")
+    print("Adding All 25 Roll Programs + Test Program to Database")
     print("="*60)
     print(f"Total programs to add: {len(programs)}\n")
     

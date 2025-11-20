@@ -159,7 +159,7 @@ def init_database():
         
         print("[OK] Created/verified roll_categories table")
         
-        # Insert 25 predefined roll categories
+        # Insert 25 predefined roll categories + Test Program
         roll_categories = [
             "TSL ECL ROLL (NBR)",
             "CGL-2 Alkali Roll (NBR)",
@@ -185,7 +185,8 @@ def init_database():
             "SLEEVE 50-60 mm Lining",
             "Sleeve Mandrel",
             "JSW Roll",
-            "Other Roll"
+            "Other Roll",
+            "Test Program"
         ]
         
         for category in roll_categories:
