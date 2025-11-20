@@ -1008,27 +1008,39 @@ class SensorControlService:
                 except Exception as e:
                     pass  # Continue if database check fails
             
+            # ===== COMPLETION CHECKS (Independent of RS485) =====
+            
+            # 1. Check if total time has elapsed (for manual or total duration)
             if self.end_time and get_ist_now().timestamp() >= self.end_time:
-                # Time elapsed
                 print(f"[COMPLETE] Time elapsed for session {self.session_id}, calling complete_session()")
                 self.complete_session()
                 break
             
+            # 2. Check for step completion (multi-step programs) - works without RS485
+            if self.program_steps and self.current_step_index < len(self.program_steps):
+                if self.check_step_completion():
+                    print(f"[STEP] Step {self.current_step_index + 1} completed, advancing to next step")
+                    self.advance_to_next_step()
+                    # After advancing, check if all steps are done (advance_to_next_step calls complete_session if done)
+                    time.sleep(1)
+                    continue
+            
+            # 3. Update remaining time (works without RS485)
+            if self.end_time:
+                remaining_seconds = self.end_time - get_ist_now().timestamp()
+                self.remaining_minutes = max(0, int(remaining_seconds / 60) + 1)
+            
+            # ===== SENSOR READING (RS485 dependent) =====
             pressure = self.read_pressure()
             temperature = self.read_temperature()
             valve_position = self.read_valve_position()
             
+            # If no PLC connection, just wait and continue (completion checks above will still work)
             if pressure is None:
                 time.sleep(1)
                 continue
             
-            # Update remaining time
-            self.remaining_minutes = int((self.end_time - get_ist_now().timestamp()) / 60) + 1
-            
-            # Check for step completion (multi-step programs)
-            if self.program_steps and self.current_step_index < len(self.program_steps):
-                if self.check_step_completion():
-                    self.advance_to_next_step()
+            # ===== CONTROL LOGIC (Only runs if we have sensor readings) =====
             
             # Only control if session status is 'running'
             if self.conn and self.session_id:
@@ -1084,19 +1096,39 @@ class SensorControlService:
             time.sleep(1)
     
     def complete_session(self):
-        """Complete the current control session"""
-        if self.conn and self.session_id:
-            try:
-                cursor = self.conn.cursor()
-                # Check current status before updating
-                cursor.execute(
-                    "SELECT status FROM process_sessions WHERE id=%s",
-                    (self.session_id,)
-                )
-                current_status = cursor.fetchone()
-                if current_status:
-                    print(f"[COMPLETE] Current status before completion: {current_status[0]}")
-                
+        """Complete the current control session - Independent of RS485"""
+        print(f"[COMPLETE] complete_session() called - conn: {self.conn is not None}, session_id: {self.session_id}")
+        
+        if not self.conn:
+            print(f"[ERROR] No database connection in complete_session()")
+            # Try to reconnect
+            self.db_connect()
+            if not self.conn:
+                print(f"[ERROR] Failed to reconnect to database")
+                return
+        
+        if not self.session_id:
+            print(f"[ERROR] No session_id in complete_session()")
+            return
+            
+        try:
+            cursor = self.conn.cursor()
+            # Use FOR UPDATE to lock the row
+            cursor.execute(
+                "SELECT status FROM process_sessions WHERE id=%s FOR UPDATE",
+                (self.session_id,)
+            )
+            current_status = cursor.fetchone()
+            if not current_status:
+                print(f"[ERROR] Session {self.session_id} not found in database")
+                cursor.close()
+                return
+            
+            status = current_status[0]
+            print(f"[COMPLETE] Current status before completion: {status}")
+            
+            # Only update if status is 'running' or 'paused'
+            if status in ('running', 'paused'):
                 cursor.execute(
                     "UPDATE process_sessions SET status='completed', end_time=%s WHERE id=%s",
                     (get_ist_now(), self.session_id)
@@ -1104,15 +1136,33 @@ class SensorControlService:
                 rows_affected = cursor.rowcount
                 self.conn.commit()
                 cursor.close()
-                print(f"[COMPLETE] Session {self.session_id} completed, rows_affected: {rows_affected}")
-            except Exception as e:
-                print(f"[ERROR] Completing session: {e}")
-                import traceback
-                traceback.print_exc()
+                
+                if rows_affected > 0:
+                    print(f"[COMPLETE] Session {self.session_id} completed successfully, rows_affected: {rows_affected}")
+                else:
+                    print(f"[WARNING] Session {self.session_id} update returned 0 rows")
+            else:
+                print(f"[INFO] Session {self.session_id} already has status '{status}', skipping update")
+                self.conn.commit()
+                cursor.close()
+                    
+        except Exception as e:
+            print(f"[ERROR] Completing session: {e}")
+            import traceback
+            traceback.print_exc()
+            if self.conn:
+                try:
+                    self.conn.rollback()
+                except:
+                    pass
+        
+        # Stop control loop
+        self.control_active = False
         
         # Stop buzzer thread and turn off buzzer
         if self.buzzer_thread and self.buzzer_thread.is_alive():
             self.buzzer_stop_event.set()
+            print("[COMPLETE] Buzzer thread stopped")
             self.buzzer_thread.join(timeout=2)  # Wait up to 2 seconds for thread to stop
             self.set_buzzer(False)
             print("[COMPLETE] Buzzer thread stopped and buzzer turned off")
