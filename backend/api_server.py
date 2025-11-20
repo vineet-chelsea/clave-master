@@ -127,6 +127,10 @@ def get_recent_readings():
 def get_sessions():
     """Get all process sessions with pagination support"""
     try:
+        # Get database connection first
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
         # Get pagination parameters
         page = request.args.get('page', 1, type=int)
         per_page_param = request.args.get('per_page', type=int)
@@ -216,9 +220,6 @@ def get_sessions():
         per_page = min(max(1, per_page_param), 1000)  # Between 1 and 1000
         
         offset = (page - 1) * per_page
-        
-        conn = get_db_connection()
-        cursor = conn.cursor()
         
         # Get total count for pagination
         cursor.execute("SELECT COUNT(*) FROM process_sessions")
