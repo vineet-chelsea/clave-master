@@ -345,7 +345,7 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
   };
 
   const handleStop = async () => {
-    console.log('Stopping process...', { sessionId, sessionDataStatus: sessionData?.status });
+    console.log('[handleStop] Starting...', { sessionId, sessionDataStatus: sessionData?.status });
     
     // Clean up intervals first
     if (intervalRef.current) {
@@ -357,30 +357,70 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
       logIntervalRef.current = undefined;
     }
     
-    // Fetch latest session status before checking to avoid race conditions
+    // Step 1: Check sessionData.status first (fastest, no API call needed)
     let currentStatus = sessionData?.status;
     let isCompleted = false;
     
-    if (sessionId) {
+    if (currentStatus && currentStatus.toLowerCase() === 'completed') {
+      console.log('[handleStop] Status already completed in sessionData:', currentStatus);
+      isCompleted = true;
+    } else if (sessionId) {
+      // Step 2: Fetch latest status from API if sessionId exists
       try {
+        console.log('[handleStop] Fetching latest status from API for sessionId:', sessionId);
         const response = await fetch(`${API_URL}/sessions`);
-        const sessions = await response.json();
-        const currentSession = sessions.find((s: any) => s.id.toString() === sessionId);
+        const data = await response.json();
+        
+        // Handle both old format (array) and new format (object with pagination wrapper)
+        let sessionsArray: any[] = [];
+        if (Array.isArray(data)) {
+          // Old format - backward compatibility
+          sessionsArray = data;
+          console.log('[handleStop] API returned array format, count:', sessionsArray.length);
+        } else if (data.sessions && Array.isArray(data.sessions)) {
+          // New format with pagination wrapper
+          sessionsArray = data.sessions;
+          console.log('[handleStop] API returned pagination format, sessions count:', sessionsArray.length);
+        } else {
+          console.warn('[handleStop] Unexpected API response format:', data);
+        }
+        
+        // Find the current session
+        const currentSession = sessionsArray.find((s: any) => s.id.toString() === sessionId);
         if (currentSession) {
           currentStatus = currentSession.status;
           isCompleted = currentStatus && currentStatus.toLowerCase() === 'completed';
-          console.log('Fetched latest session status:', currentStatus, 'isCompleted:', isCompleted);
+          console.log('[handleStop] Found session in API response:', { 
+            sessionId, 
+            status: currentStatus, 
+            isCompleted 
+          });
           setSessionData(currentSession); // Update state with latest data
         } else {
-          console.warn('Session not found in API response:', sessionId);
+          console.warn('[handleStop] Session not found in API response:', sessionId, 'Total sessions:', sessionsArray.length);
+          // Fallback to sessionData if API doesn't have the session
+          if (sessionData?.status) {
+            currentStatus = sessionData.status;
+            isCompleted = currentStatus.toLowerCase() === 'completed';
+            console.log('[handleStop] Using sessionData as fallback:', { status: currentStatus, isCompleted });
+          }
         }
       } catch (e) {
-        console.error('Failed to fetch latest session status:', e);
+        console.error('[handleStop] Failed to fetch latest session status:', e);
+        // Fallback to sessionData if API call fails
+        if (sessionData?.status) {
+          currentStatus = sessionData.status;
+          isCompleted = currentStatus.toLowerCase() === 'completed';
+          console.log('[handleStop] API call failed, using sessionData as fallback:', { status: currentStatus, isCompleted });
+        }
       }
     } else {
-      // If no sessionId, check sessionData directly
+      // Step 3: If no sessionId, check sessionData directly
       isCompleted = sessionData?.status && sessionData.status.toLowerCase() === 'completed';
-      console.log('No sessionId, checking sessionData directly:', { status: sessionData?.status, isCompleted });
+      console.log('[handleStop] No sessionId, checking sessionData directly:', { 
+        status: sessionData?.status, 
+        isCompleted 
+      });
     }
     
     // If session is already completed, don't call stop API - just go back
@@ -425,16 +465,26 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
       
       // If no rows were affected, the session might have been completed
       if (result.rows_affected === 0 && !result.message) {
-        console.log('No rows affected - session may have been completed');
+        console.log('[handleStop] No rows affected - re-checking status');
         // Re-check status one more time
         try {
           const statusResponse = await fetch(`${API_URL}/sessions`);
-          const sessions = await statusResponse.json();
-          const currentSession = sessionId 
-            ? sessions.find((s: any) => s.id.toString() === sessionId)
-            : sessions[0]; // Most recent
+          const statusData = await statusResponse.json();
           
-          if (currentSession && currentSession.status === 'completed') {
+          // Handle pagination wrapper format
+          let statusSessionsArray: any[] = [];
+          if (Array.isArray(statusData)) {
+            statusSessionsArray = statusData;
+          } else if (statusData.sessions && Array.isArray(statusData.sessions)) {
+            statusSessionsArray = statusData.sessions;
+          }
+          
+          const currentSession = sessionId 
+            ? statusSessionsArray.find((s: any) => s.id.toString() === sessionId)
+            : statusSessionsArray[0]; // Most recent
+          
+          if (currentSession && currentSession.status && currentSession.status.toLowerCase() === 'completed') {
+            console.log('[handleStop] Re-check confirmed session is completed');
             toast({
               title: "Process Completed",
               description: "Process was already completed",
@@ -445,7 +495,7 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
             return;
           }
         } catch (e) {
-          console.error('Failed to re-check status:', e);
+          console.error('[handleStop] Failed to re-check status:', e);
         }
       }
     } catch (e) {
