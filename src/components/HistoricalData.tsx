@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ArrowLeft, Download, BarChart3, FileText } from "lucide-react";
+import { ArrowLeft, Download, BarChart3, FileText, ChevronLeft, ChevronRight } from "lucide-react";
 import { supabase, API_URL } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import * as XLSX from 'xlsx';
@@ -59,21 +59,51 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
   const [logs, setLogs] = useState<ProcessLog[]>([]);
   const [showChart, setShowChart] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalSessions, setTotalSessions] = useState(0);
+  const [perPage] = useState(50); // Sessions per page
   const { toast } = useToast();
   const pressureChartRef = useRef<HTMLDivElement>(null);
   const temperatureChartRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    fetchSessions();
-  }, []);
+    fetchSessions(currentPage);
+  }, [currentPage]);
 
-  const fetchSessions = async () => {
+  const fetchSessions = async (page: number = 1) => {
     try {
-      const response = await fetch(`${API_URL}/sessions`);
+      setLoading(true);
+      // Fetch all sessions by default (no pagination), or use pagination if explicitly requested
+      // For now, always fetch all sessions - pagination can be enabled later if needed
+      const url = `${API_URL}/sessions`;
+      const response = await fetch(url);
       const data = await response.json();
       
+      // Handle both old format (array) and new format (object with pagination)
+      let sessionsData: any[] = [];
+      let paginationData = null;
+      
+      if (Array.isArray(data)) {
+        // Old format - backward compatibility (all sessions)
+        sessionsData = data;
+        setTotalPages(1);
+        setTotalSessions(data.length);
+      } else if (data.sessions && data.pagination) {
+        // New format with pagination
+        sessionsData = data.sessions;
+        paginationData = data.pagination;
+        setTotalPages(paginationData.total_pages);
+        setTotalSessions(paginationData.total);
+      } else {
+        // Fallback
+        sessionsData = Array.isArray(data) ? data : [];
+        setTotalPages(1);
+        setTotalSessions(sessionsData.length);
+      }
+      
       // Map API response to component interface
-      const mappedData = data.map((session: any) => ({
+      const mappedData = sessionsData.map((session: any) => ({
         id: session.id.toString(),
         program_name: session.program_name || 'Manual Control',
         start_time: session.start_time,
@@ -94,6 +124,8 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
         description: "Failed to fetch sessions",
         variant: "destructive",
       });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -372,6 +404,67 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
                 })}
               </TableBody>
             </Table>
+          </div>
+          
+          {/* Pagination Controls and Session Count */}
+          <div className="flex items-center justify-between mt-4 pt-4 border-t">
+            <div className="text-sm text-muted-foreground">
+              {totalPages > 1 && totalSessions > perPage ? (
+                <>Showing {((currentPage - 1) * perPage) + 1} to {Math.min(currentPage * perPage, totalSessions)} of {totalSessions} sessions</>
+              ) : (
+                <>Total: {totalSessions} session{totalSessions !== 1 ? 's' : ''}</>
+              )}
+            </div>
+            {totalPages > 1 && totalSessions > perPage && (
+              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={currentPage === 1 || loading}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Previous
+                </Button>
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let pageNum: number;
+                    if (totalPages <= 5) {
+                      pageNum = i + 1;
+                    } else if (currentPage <= 3) {
+                      pageNum = i + 1;
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i;
+                    } else {
+                      pageNum = currentPage - 2 + i;
+                    }
+                    
+                    return (
+                      <Button
+                        key={pageNum}
+                        variant={currentPage === pageNum ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setCurrentPage(pageNum)}
+                        disabled={loading}
+                        className="min-w-[40px]"
+                      >
+                        {pageNum}
+                      </Button>
+                    );
+                  })}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                  disabled={currentPage === totalPages || loading}
+                >
+                  Next
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
           </div>
         </Card>
 

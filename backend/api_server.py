@@ -125,18 +125,113 @@ def get_recent_readings():
 
 @app.route('/api/sessions', methods=['GET'])
 def get_sessions():
-    """Get all process sessions"""
+    """Get all process sessions with pagination support"""
     try:
+        # Get pagination parameters
+        page = request.args.get('page', 1, type=int)
+        per_page_param = request.args.get('per_page', type=int)
+        
+        # If per_page is not specified or is 0, get all sessions (no pagination)
+        if per_page_param is None or per_page_param <= 0:
+            # Get all sessions without limit
+            cursor.execute("""
+                SELECT id, program_name, status, start_time, end_time, target_pressure, duration_minutes, steps_data,
+                       roll_category_name, sub_roll_name, roll_id, operator_name, number_of_rolls
+                FROM process_sessions 
+                ORDER BY start_time DESC
+            """)
+            rows = cursor.fetchall()
+            
+            # Get total count
+            cursor.execute("SELECT COUNT(*) FROM process_sessions")
+            total_count = cursor.fetchone()[0]
+            
+            cursor.close()
+            conn.close()
+            
+            sessions = [
+                {
+                    'id': row[0],
+                    'program_name': row[1],
+                    'status': row[2],
+                    'start_time': row[3].isoformat() if row[3] else None,
+                    'end_time': row[4].isoformat() if row[4] else None,
+                    'target_pressure': float(row[5]) if row[5] else None,
+                    'duration_minutes': int(row[6]) if row[6] else None,
+                    'steps_data': row[7] if row[7] else None,
+                    'roll_category_name': row[8] if len(row) > 8 else None,
+                    'sub_roll_name': row[9] if len(row) > 9 else None,
+                    'roll_id': row[10] if len(row) > 10 else None,
+                    'operator_name': row[11] if len(row) > 11 else None,
+                    'number_of_rolls': int(row[12]) if len(row) > 12 and row[12] else None
+                }
+                for row in rows
+            ]
+            
+            # Deduplicate (same logic as below)
+            seen_sessions = {}
+            deduplicated = []
+            
+            for session in sessions:
+                if session['roll_category_name']:
+                    key = f"{session['start_time']}_{session['program_name']}_{session['roll_category_name']}"
+                else:
+                    key = f"{session['start_time']}_{session['program_name']}"
+                
+                if key not in seen_sessions:
+                    seen_sessions[key] = session
+                    deduplicated.append(session)
+                else:
+                    existing = seen_sessions[key]
+                    if session['roll_category_name'] and not existing['roll_category_name']:
+                        deduplicated.remove(existing)
+                        deduplicated.append(session)
+                        seen_sessions[key] = session
+                    elif session['roll_category_name'] == existing['roll_category_name']:
+                        session_fields = sum(1 for v in [session.get('roll_category_name'), session.get('sub_roll_name'), 
+                                                         session.get('roll_id'), session.get('operator_name'), 
+                                                         session.get('number_of_rolls')] if v is not None)
+                        existing_fields = sum(1 for v in [existing.get('roll_category_name'), existing.get('sub_roll_name'),
+                                                           existing.get('roll_id'), existing.get('operator_name'),
+                                                           existing.get('number_of_rolls')] if v is not None)
+                        if session_fields > existing_fields:
+                            deduplicated.remove(existing)
+                            deduplicated.append(session)
+                            seen_sessions[key] = session
+            
+            return jsonify({
+                'sessions': deduplicated,
+                'pagination': {
+                    'page': 1,
+                    'per_page': len(deduplicated),
+                    'total': total_count,
+                    'total_pages': 1,
+                    'has_next': False,
+                    'has_prev': False
+                }
+            })
+        
+        # Validate parameters for pagination
+        page = max(1, page)  # Page must be at least 1
+        per_page = min(max(1, per_page_param), 1000)  # Between 1 and 1000
+        
+        offset = (page - 1) * per_page
+        
         conn = get_db_connection()
         cursor = conn.cursor()
         
+        # Get total count for pagination
+        cursor.execute("SELECT COUNT(*) FROM process_sessions")
+        total_count = cursor.fetchone()[0]
+        
+        # Get paginated sessions
         cursor.execute("""
             SELECT id, program_name, status, start_time, end_time, target_pressure, duration_minutes, steps_data,
                    roll_category_name, sub_roll_name, roll_id, operator_name, number_of_rolls
             FROM process_sessions 
             ORDER BY start_time DESC 
-            LIMIT 50
-        """)
+            LIMIT %s OFFSET %s
+        """, (per_page, offset))
         
         rows = cursor.fetchall()
         cursor.close()
@@ -203,7 +298,20 @@ def get_sessions():
                         seen_sessions[key] = session
                 # Otherwise keep the existing one
         
-        return jsonify(deduplicated)
+        # Calculate pagination metadata
+        total_pages = (total_count + per_page - 1) // per_page if total_count > 0 else 1
+        
+        return jsonify({
+            'sessions': deduplicated,
+            'pagination': {
+                'page': page,
+                'per_page': per_page,
+                'total': total_count,
+                'total_pages': total_pages,
+                'has_next': page < total_pages,
+                'has_prev': page > 1
+            }
+        })
     except Exception as e:
         import traceback
         print(f"[ERROR] get_sessions: {e}")
