@@ -826,8 +826,8 @@ class SensorControlService:
                     # Auto program - session not found, return False
                     return False
             
-            # If no session_id provided or session not found, try to find existing or create new
-            if not existing_session_id:
+            # If no session_id provided or session not found (and not already set above), try to find existing or create new
+            if not existing_session_id and not hasattr(self, 'session_id') or not self.session_id:
                 cursor = self.conn.cursor()
                 import time
                 
