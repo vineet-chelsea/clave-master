@@ -778,43 +778,69 @@ class SensorControlService:
             target_pressure = float(target_pressure)
             duration_minutes = int(duration_minutes)
             
+            # CRITICAL: Sensor service NEVER creates sessions - only uses API-created sessions
+            # Both manual and auto programs must be created by the API first
+            
             # If session_id is provided (from API), use it directly
             if existing_session_id:
                 cursor = self.conn.cursor()
-                cursor.execute(
-                    "SELECT id FROM process_sessions WHERE id=%s AND status='running'",
-                    (existing_session_id,)
-                )
-                result = cursor.fetchone()
-                cursor.close()
-                if result:
-                    self.session_id = existing_session_id
-                    print(f"[SESSION] Using provided session {self.session_id}")
-                else:
-                    print(f"[WARNING] Provided session {existing_session_id} not found or not running, will create new one")
-                    existing_session_id = None
+                import time
+                max_retries = 10
+                found_session = False
+                
+                for attempt in range(max_retries):
+                    cursor.execute(
+                        "SELECT id FROM process_sessions WHERE id=%s AND status='running'",
+                        (existing_session_id,)
+                    )
+                    result = cursor.fetchone()
+                    
+                    if result:
+                        self.session_id = existing_session_id
+                        print(f"[SESSION] Using provided session {self.session_id}")
+                        found_session = True
+                        cursor.close()
+                        break
+                    elif attempt < max_retries - 1:
+                        time.sleep(0.3)
+                        cursor.close()
+                        cursor = self.conn.cursor()
+                    else:
+                        cursor.close()
+                        print(f"[ERROR] Provided session {existing_session_id} not found after {max_retries} retries. API must create sessions.")
+                        return False
+                
+                if not found_session:
+                    return False
             
-            # If no session_id provided or session not found, try to find existing or create new
+            # If no session_id provided, try to find existing API-created session
             if not existing_session_id:
                 cursor = self.conn.cursor()
-                # First, check for ANY running session with target_pressure (most recent)
-                cursor.execute(
-                    "SELECT id FROM process_sessions WHERE status='running' AND target_pressure IS NOT NULL ORDER BY id DESC LIMIT 1"
-                )
-                result = cursor.fetchone()
+                import time
                 
-                if result:
-                    # Use existing session
-                    self.session_id = result[0]
-                    print(f"[SESSION] Using existing running session {self.session_id}")
-                else:
-                    # Create new session only if no running session exists
+                # Check for ANY running session (API-created) - retry multiple times
+                for attempt in range(15):
                     cursor.execute(
-                        "INSERT INTO process_sessions (program_name, status, start_time) VALUES (%s, %s, %s) RETURNING id",
-                        (program_name, 'running', get_ist_now())
+                        "SELECT id FROM process_sessions WHERE status='running' ORDER BY id DESC LIMIT 1"
                     )
-                    self.session_id = cursor.fetchone()[0]
-                    print(f"[SESSION] Created new session {self.session_id}")
+                    result = cursor.fetchone()
+                    
+                    if result:
+                        self.session_id = result[0]
+                        print(f"[SESSION] Found API-created session {self.session_id} (attempt {attempt+1})")
+                        cursor.close()
+                        break
+                    elif attempt < 14:
+                        time.sleep(0.3)
+                        cursor.close()
+                        cursor = self.conn.cursor()
+                    else:
+                        cursor.close()
+                        print(f"[ERROR] No API-created session found after 15 retries. API must create sessions for both manual and auto programs.")
+                        return False
+                
+                if not self.session_id:
+                    return False
                 
                 cursor.close()
             
