@@ -347,8 +347,20 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
   const handleStop = async () => {
     console.log('Stopping process...', { sessionId, sessionDataStatus: sessionData?.status });
     
+    // Clean up intervals first
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = undefined;
+    }
+    if (logIntervalRef.current) {
+      clearInterval(logIntervalRef.current);
+      logIntervalRef.current = undefined;
+    }
+    
     // Fetch latest session status before checking to avoid race conditions
     let currentStatus = sessionData?.status;
+    let isCompleted = false;
+    
     if (sessionId) {
       try {
         const response = await fetch(`${API_URL}/sessions`);
@@ -356,7 +368,8 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
         const currentSession = sessions.find((s: any) => s.id.toString() === sessionId);
         if (currentSession) {
           currentStatus = currentSession.status;
-          console.log('Fetched latest session status:', currentStatus);
+          isCompleted = currentStatus && currentStatus.toLowerCase() === 'completed';
+          console.log('Fetched latest session status:', currentStatus, 'isCompleted:', isCompleted);
           setSessionData(currentSession); // Update state with latest data
         } else {
           console.warn('Session not found in API response:', sessionId);
@@ -365,26 +378,15 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
         console.error('Failed to fetch latest session status:', e);
       }
     } else {
-      console.warn('No sessionId available for status check');
+      // If no sessionId, check sessionData directly
+      isCompleted = sessionData?.status && sessionData.status.toLowerCase() === 'completed';
+      console.log('No sessionId, checking sessionData directly:', { status: sessionData?.status, isCompleted });
     }
-    
-    console.log('Final status check:', { currentStatus, isCompleted: currentStatus === 'completed' });
     
     // If session is already completed, don't call stop API - just go back
     // This preserves the 'completed' status instead of changing it to 'stopped'
-    // Check case-insensitively in case of any variations
-    if (currentStatus && currentStatus.toLowerCase() === 'completed') {
+    if (isCompleted) {
       console.log('Session already completed, skipping stop API call to preserve completed status');
-      
-      // Clean up intervals
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = undefined;
-      }
-      if (logIntervalRef.current) {
-        clearInterval(logIntervalRef.current);
-        logIntervalRef.current = undefined;
-      }
       
       toast({
         title: "Process Completed",
@@ -392,16 +394,6 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
       });
       onStop();
       return;
-    }
-    
-    // Clean up intervals
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = undefined;
-    }
-    if (logIntervalRef.current) {
-      clearInterval(logIntervalRef.current);
-      logIntervalRef.current = undefined;
     }
 
     // Stop session via API (only if not already completed)
