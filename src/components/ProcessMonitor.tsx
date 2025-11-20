@@ -347,6 +347,18 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
   const handleStop = async () => {
     console.log('Stopping process...');
     
+    // If session is already completed, don't call stop API - just go back
+    // This preserves the 'completed' status instead of changing it to 'stopped'
+    if (sessionData?.status === 'completed') {
+      console.log('Session already completed, skipping stop API call to preserve completed status');
+      toast({
+        title: "Process Completed",
+        description: "Process was already completed",
+      });
+      onStop();
+      return;
+    }
+    
     // Clean up intervals
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
@@ -357,7 +369,7 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
       logIntervalRef.current = undefined;
     }
 
-    // Stop session via API
+    // Stop session via API (only if not already completed)
     try {
       const response = await fetch(`${API_URL}/stop-control`, { method: 'POST' });
       const result = await response.json();
@@ -539,32 +551,34 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
 
         {/* Control Buttons */}
         <div className="flex gap-4 justify-center">
+          {sessionData?.status !== 'completed' && (
+            <Button
+              size="lg"
+              variant="outline"
+              onClick={handlePause}
+              className="gap-2 px-8 py-6 text-lg"
+            >
+              {status === 'running' ? (
+                <>
+                  <Pause className="w-6 h-6" />
+                  PAUSE
+                </>
+              ) : (
+                <>
+                  <Play className="w-6 h-6" />
+                  RESUME
+                </>
+              )}
+            </Button>
+          )}
           <Button
             size="lg"
-            variant="outline"
-            onClick={handlePause}
-            className="gap-2 px-8 py-6 text-lg"
-          >
-            {status === 'running' ? (
-              <>
-                <Pause className="w-6 h-6" />
-                PAUSE
-              </>
-            ) : (
-              <>
-                <Play className="w-6 h-6" />
-                RESUME
-              </>
-            )}
-          </Button>
-          <Button
-            size="lg"
-            variant="destructive"
+            variant={sessionData?.status === 'completed' ? "default" : "destructive"}
             onClick={handleStop}
             className="gap-2 px-8 py-6 text-lg"
           >
             <StopCircle className="w-6 h-6" />
-            STOP PROCESS
+            {sessionData?.status === 'completed' ? 'END PROCESS' : 'STOP PROCESS'}
           </Button>
         </div>
 
