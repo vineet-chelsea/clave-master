@@ -797,12 +797,18 @@ class SensorControlService:
             # If no session_id provided or session not found, try to find existing or create new
             if not existing_session_id:
                 cursor = self.conn.cursor()
-                # First, check for ANY running session with target_pressure (most recent)
-                # Wait a moment and check again to avoid race condition with API session creation
+                # First, check for ANY running session (with or without target_pressure)
+                # This includes auto program sessions created by API
                 import time
-                for attempt in range(3):
+                for attempt in range(5):  # Increased retries
+                    # Check for any running session - prioritize ones with roll_category_name or steps_data (auto programs)
                     cursor.execute(
-                        "SELECT id FROM process_sessions WHERE status='running' AND target_pressure IS NOT NULL ORDER BY id DESC LIMIT 1"
+                        """SELECT id FROM process_sessions 
+                           WHERE status='running' 
+                           ORDER BY 
+                             CASE WHEN roll_category_name IS NOT NULL OR steps_data IS NOT NULL THEN 0 ELSE 1 END,
+                             id DESC 
+                           LIMIT 1"""
                     )
                     result = cursor.fetchone()
                     
@@ -812,28 +818,37 @@ class SensorControlService:
                         print(f"[SESSION] Using existing running session {self.session_id}")
                         cursor.close()
                         break
-                    elif attempt < 2:
+                    elif attempt < 4:
                         # Wait a bit and retry (API might still be creating the session)
-                        time.sleep(0.5)
+                        time.sleep(0.3)
                         cursor.close()
                         cursor = self.conn.cursor()
                     else:
-                        # Last attempt - only create new session if this is manual mode (no steps_data)
-                        # For auto programs, API should create the session, so don't create one here
-                        if not steps_data:
-                            # Manual mode - create session
+                        # Last attempt - check if there's ANY running session at all (even without target_pressure)
+                        cursor.execute(
+                            "SELECT id FROM process_sessions WHERE status='running' ORDER BY id DESC LIMIT 1"
+                        )
+                        any_session = cursor.fetchone()
+                        
+                        if any_session:
+                            # There's a running session, use it (might be auto program session being created)
+                            self.session_id = any_session[0]
+                            print(f"[SESSION] Using existing running session {self.session_id} (found on final check)")
+                            cursor.close()
+                        elif not steps_data:
+                            # Manual mode only - create session if no running session exists at all
                             cursor.execute(
                                 "INSERT INTO process_sessions (program_name, status, start_time) VALUES (%s, %s, %s) RETURNING id",
                                 (program_name, 'running', get_ist_now())
                             )
                             self.session_id = cursor.fetchone()[0]
                             print(f"[SESSION] Created new manual session {self.session_id}")
+                            cursor.close()
                         else:
                             # Auto program mode - API should have created session, but we didn't find it
-                            print(f"[WARNING] Auto program session not found after retries. API should create sessions for auto programs.")
+                            print(f"[ERROR] Auto program session not found after retries. API should create sessions for auto programs.")
                             cursor.close()
                             return False
-                        cursor.close()
                         break
             
             # Load program steps if provided (auto program mode)
