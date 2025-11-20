@@ -827,7 +827,7 @@ class SensorControlService:
                     return False
             
             # If no session_id provided or session not found (and not already set above), try to find existing or create new
-            if not existing_session_id and not hasattr(self, 'session_id') or not self.session_id:
+            if not existing_session_id and (not hasattr(self, 'session_id') or not self.session_id):
                 cursor = self.conn.cursor()
                 import time
                 
@@ -835,30 +835,56 @@ class SensorControlService:
                 # Only the API should create auto program sessions
                 if steps_data:
                     # Auto program - must find API-created session, retry multiple times
-                    for attempt in range(10):  # More retries for auto programs
+                    # Check for sessions with roll_category_name OR steps_data (both indicate API-created auto program)
+                    for attempt in range(15):  # Even more retries for auto programs
+                        # First, try to find session with roll_category_name (most specific)
                         cursor.execute(
                             """SELECT id FROM process_sessions 
                                WHERE status='running' 
-                               AND (roll_category_name IS NOT NULL OR steps_data IS NOT NULL)
+                               AND roll_category_name IS NOT NULL
                                ORDER BY id DESC 
                                LIMIT 1"""
                         )
                         result = cursor.fetchone()
+                        
+                        if not result:
+                            # If not found, try with steps_data
+                            cursor.execute(
+                                """SELECT id FROM process_sessions 
+                                   WHERE status='running' 
+                                   AND steps_data IS NOT NULL
+                                   ORDER BY id DESC 
+                                   LIMIT 1"""
+                            )
+                            result = cursor.fetchone()
                         
                         if result:
                             self.session_id = result[0]
                             print(f"[SESSION] Found API-created auto program session {self.session_id}")
                             cursor.close()
                             break
-                        elif attempt < 9:
+                        elif attempt < 14:
                             time.sleep(0.5)  # Wait longer between retries
                             cursor.close()
                             cursor = self.conn.cursor()
                         else:
                             # After all retries, still no session found
-                            print(f"[ERROR] Auto program session not found after 10 retries. API must create sessions for auto programs.")
-                            cursor.close()
-                            return False
+                            # Check one more time if there's ANY running session (might be the API one being created)
+                            cursor.execute(
+                                "SELECT id FROM process_sessions WHERE status='running' ORDER BY id DESC LIMIT 1"
+                            )
+                            any_session = cursor.fetchone()
+                            if any_session:
+                                # Use this session even if it doesn't have roll_category_name yet
+                                # (API might still be updating it)
+                                self.session_id = any_session[0]
+                                print(f"[SESSION] Using running session {self.session_id} (API might still be updating roll details)")
+                                cursor.close()
+                                break
+                            else:
+                                print(f"[ERROR] Auto program session not found after 15 retries. API must create sessions for auto programs.")
+                                cursor.close()
+                                return False
                 else:
                     # Manual mode - can create session, but check for existing ones first
                     for attempt in range(5):
