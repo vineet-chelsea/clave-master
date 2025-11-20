@@ -764,14 +764,19 @@ def stop_control():
         if request.is_json:
             data = request.get_json()
             session_id = data.get('session_id') if data else None
+            print(f"[API] stop-control received session_id: {session_id}, request data: {data}")
+        else:
+            print("[API] stop-control request is not JSON, content-type:", request.content_type)
         
         # If session_id is provided, check that specific session
         if session_id:
             try:
                 session_id = int(session_id)
-            except (ValueError, TypeError):
+                print(f"[API] Checking specific session {session_id}")
+            except (ValueError, TypeError) as e:
                 cursor.close()
                 conn.close()
+                print(f"[API] Invalid session_id format: {session_id}, error: {e}")
                 return jsonify({'success': False, 'error': 'Invalid session_id'}), 400
             
             # Get the specific session's status
@@ -784,10 +789,11 @@ def stop_control():
             if not session:
                 cursor.close()
                 conn.close()
-                print(f"[API] Session {session_id} not found")
+                print(f"[API] Session {session_id} not found in database")
                 return jsonify({'success': False, 'error': 'Session not found'}), 404
             
             found_session_id, current_status = session
+            print(f"[API] Found session {found_session_id} with status: {current_status}")
             
             # CRITICAL: Never update if status is 'completed'
             if current_status == 'completed':
@@ -808,7 +814,7 @@ def stop_control():
                 )
                 rows_affected = cursor.rowcount
                 conn.commit()
-                print(f"[API] Stopped session {session_id} (status was: {current_status})")
+                print(f"[API] Stopped session {session_id} (status was: {current_status}), rows_affected: {rows_affected}")
             else:
                 rows_affected = 0
                 print(f"[API] Session {session_id} has status '{current_status}', not updating")

@@ -110,8 +110,17 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
       if (sessionId) {
         try {
           const response = await fetch(`${API_URL}/sessions`);
-          const sessions = await response.json();
-          const currentSession = sessions.find((s: any) => s.id.toString() === sessionId);
+          const data = await response.json();
+          
+          // Handle pagination wrapper format
+          let sessionsArray: any[] = [];
+          if (Array.isArray(data)) {
+            sessionsArray = data;
+          } else if (data.sessions && Array.isArray(data.sessions)) {
+            sessionsArray = data.sessions;
+          }
+          
+          const currentSession = sessionsArray.find((s: any) => s.id.toString() === sessionId);
           
           if (currentSession) {
             setSessionData(currentSession);
@@ -442,14 +451,54 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
     }
 
     // Stop session via API (only if not already completed)
+    // Before calling API, do one final check to ensure status hasn't changed to completed
+    // This handles race conditions where process just completed
+    if (sessionId && !isCompleted) {
+      try {
+        console.log('[handleStop] Final status check before API call...');
+        const finalCheckResponse = await fetch(`${API_URL}/sessions`);
+        const finalCheckData = await finalCheckResponse.json();
+        
+        // Handle pagination wrapper format
+        let finalSessionsArray: any[] = [];
+        if (Array.isArray(finalCheckData)) {
+          finalSessionsArray = finalCheckData;
+        } else if (finalCheckData.sessions && Array.isArray(finalCheckData.sessions)) {
+          finalSessionsArray = finalCheckData.sessions;
+        }
+        
+        const finalSession = finalSessionsArray.find((s: any) => s.id.toString() === sessionId);
+        if (finalSession && finalSession.status && finalSession.status.toLowerCase() === 'completed') {
+          console.log('[handleStop] Final check detected completed status, skipping API call');
+          toast({
+            title: "Process Completed",
+            description: "Process completed successfully",
+          });
+          setTimeout(() => {
+            onStop();
+          }, 100);
+          return;
+        }
+      } catch (e) {
+        console.warn('[handleStop] Final check failed, proceeding with API call:', e);
+      }
+    }
+    
     // Pass sessionId to backend so it can check the specific session's status
+    // Only send sessionId if it's valid (not empty, not 'local-*')
+    const validSessionId = sessionId && !sessionId.startsWith('local-') ? sessionId : null;
     try {
+      console.log('[handleStop] Calling stop-control API with sessionId:', validSessionId || 'none (will use fallback)');
+      const requestBody: any = {};
+      if (validSessionId) {
+        requestBody.session_id = validSessionId;
+      }
       const response = await fetch(`${API_URL}/stop-control`, { 
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ session_id: sessionId })
+        body: JSON.stringify(requestBody)
       });
       const result = await response.json();
       console.log('[handleStop] Stop API response:', result);
