@@ -876,7 +876,11 @@ class SensorControlService:
             if not self.current_psi_range:
                 self.current_psi_range = None
             self.remaining_minutes = duration_minutes
-            self.end_time = get_ist_now().timestamp() + (duration_minutes * 60)
+            start_time = get_ist_now().timestamp()
+            self.end_time = start_time + (duration_minutes * 60)
+            print(f"[SESSION] Setting end_time: start={start_time}, duration={duration_minutes} min, end_time={self.end_time}")
+            end_datetime = datetime.fromtimestamp(self.end_time, IST)
+            print(f"[SESSION] Session will complete at: {end_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
             
             # Start control thread only if not already running
             if not hasattr(self, 'control_thread') or not self.control_thread.is_alive():
@@ -943,7 +947,8 @@ class SensorControlService:
         control_count = 0
         no_active_session_count = 0
         
-        print("[CONTROL] Control loop started")
+        print(f"[CONTROL] Control loop started for session {self.session_id}")
+        print(f"[CONTROL] end_time: {self.end_time}, duration: {self.remaining_minutes} min")
         
         while self.control_active:
             # Check if session is still active in database
@@ -1011,10 +1016,24 @@ class SensorControlService:
             # ===== COMPLETION CHECKS (Independent of RS485) =====
             
             # 1. Check if total time has elapsed (for manual or total duration)
-            if self.end_time and get_ist_now().timestamp() >= self.end_time:
-                print(f"[COMPLETE] Time elapsed for session {self.session_id}, calling complete_session()")
-                self.complete_session()
-                break
+            if self.end_time:
+                current_time = get_ist_now().timestamp()
+                time_remaining = self.end_time - current_time
+                
+                # Debug logging every 10 seconds when close to completion
+                if not hasattr(self, '_last_completion_log') or (time.time() - self._last_completion_log) >= 10:
+                    print(f"[CONTROL] Session {self.session_id} - end_time: {self.end_time}, current: {current_time}, remaining: {time_remaining:.1f}s ({time_remaining/60:.2f} min)")
+                    self._last_completion_log = time.time()
+                
+                if current_time >= self.end_time:
+                    print(f"[COMPLETE] Time elapsed for session {self.session_id}")
+                    print(f"[COMPLETE] end_time: {self.end_time}, current_time: {current_time}, diff: {current_time - self.end_time:.1f}s")
+                    self.complete_session()
+                    break
+            else:
+                if not hasattr(self, '_no_end_time_warning'):
+                    print(f"[WARNING] Session {self.session_id} has no end_time set!")
+                    self._no_end_time_warning = True
             
             # 2. Check for step completion (multi-step programs) - works without RS485
             if self.program_steps and self.current_step_index < len(self.program_steps):
