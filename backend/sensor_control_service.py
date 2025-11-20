@@ -836,14 +836,27 @@ class SensorControlService:
                             print(f"[SESSION] Using existing running session {self.session_id} (found on final check)")
                             cursor.close()
                         elif not steps_data:
-                            # Manual mode only - create session if no running session exists at all
+                            # Manual mode only - but first check if there's any auto program session
+                            # (to prevent creating manual session when auto program session is being created)
                             cursor.execute(
-                                "INSERT INTO process_sessions (program_name, status, start_time) VALUES (%s, %s, %s) RETURNING id",
-                                (program_name, 'running', get_ist_now())
+                                "SELECT id FROM process_sessions WHERE status='running' AND (roll_category_name IS NOT NULL OR steps_data IS NOT NULL) LIMIT 1"
                             )
-                            self.session_id = cursor.fetchone()[0]
-                            print(f"[SESSION] Created new manual session {self.session_id}")
-                            cursor.close()
+                            auto_session = cursor.fetchone()
+                            
+                            if auto_session:
+                                # There's an auto program session being created, use it instead
+                                self.session_id = auto_session[0]
+                                print(f"[SESSION] Found auto program session {self.session_id}, using it instead of creating manual session")
+                                cursor.close()
+                            else:
+                                # No auto program session, safe to create manual session
+                                cursor.execute(
+                                    "INSERT INTO process_sessions (program_name, status, start_time) VALUES (%s, %s, %s) RETURNING id",
+                                    (program_name, 'running', get_ist_now())
+                                )
+                                self.session_id = cursor.fetchone()[0]
+                                print(f"[SESSION] Created new manual session {self.session_id}")
+                                cursor.close()
                         else:
                             # Auto program mode - API should have created session, but we didn't find it
                             print(f"[ERROR] Auto program session not found after retries. API should create sessions for auto programs.")
