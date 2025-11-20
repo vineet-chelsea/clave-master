@@ -1186,28 +1186,44 @@ class SensorControlService:
                     if not self.control_active and self.conn:
                         try:
                             cursor = self.conn.cursor()
-                            # Check for ANY running session (not just new ones)
+                            # Check for ANY running session - prioritize ones with roll_category_name (auto programs from API)
                             cursor.execute(
-                                "SELECT id, target_pressure, duration_minutes, program_name, steps_data FROM process_sessions WHERE status='running' AND target_pressure IS NOT NULL ORDER BY id DESC LIMIT 1"
+                                """SELECT id, target_pressure, duration_minutes, program_name, steps_data, roll_category_name 
+                                   FROM process_sessions 
+                                   WHERE status='running' 
+                                   ORDER BY 
+                                     CASE WHEN roll_category_name IS NOT NULL THEN 0 ELSE 1 END,
+                                     CASE WHEN target_pressure IS NOT NULL THEN 0 ELSE 1 END,
+                                     id DESC 
+                                   LIMIT 1"""
                             )
                             row = cursor.fetchone()
                             cursor.close()
                             
                             if row:
-                                session_id, target_pressure, duration_minutes, program_name, steps_data = row
+                                session_id, target_pressure, duration_minutes, program_name, steps_data, roll_category_name = row
                                 
                                 # Only start if this is a different session than we're tracking
                                 if session_id != self.last_checked_session_id:
                                     print(f"\n[NEW SESSION] Detected session {session_id}")
-                                    print(f"     Target: {float(target_pressure)} PSI")
-                                    print(f"     Duration: {duration_minutes} minutes")
-                                    if steps_data:
-                                        print(f"     Type: Auto Program ({len(steps_data)} steps)")
+                                    print(f"     Target: {float(target_pressure) if target_pressure else 'N/A'} PSI")
+                                    print(f"     Duration: {duration_minutes if duration_minutes else 'N/A'} minutes")
+                                    if roll_category_name:
+                                        print(f"     Type: Auto Program (Roll Category: {roll_category_name})")
+                                    elif steps_data:
+                                        print(f"     Type: Auto Program ({len(steps_data) if isinstance(steps_data, (list, dict)) else 'N/A'} steps)")
                                     else:
                                         print(f"     Type: Manual Mode")
                                     self.last_checked_session_id = session_id
                                     # Pass session_id to prevent duplicate session creation
-                                    self.start_control_session(float(target_pressure), int(duration_minutes), program_name, steps_data, existing_session_id=session_id)
+                                    # For auto programs (with roll_category_name or steps_data), NEVER create - only use API session
+                                    self.start_control_session(
+                                        float(target_pressure) if target_pressure else 0, 
+                                        int(duration_minutes) if duration_minutes else 0, 
+                                        program_name, 
+                                        steps_data, 
+                                        existing_session_id=session_id
+                                    )
                         except Exception as e:
                             pass  # Silent fail, continue reading
                     
