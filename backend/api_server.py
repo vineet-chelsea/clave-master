@@ -1006,17 +1006,17 @@ def start_auto_program():
                 # Found a recent session - use it and update with roll details
                 session_id = any_recent_session[0]
                 print(f"[API] Found recent session {session_id} without roll details, updating it with roll details")
-                # Update with roll details - use COALESCE to only update if current value is NULL/empty
+                # Update with roll details - ALWAYS set these values (don't use COALESCE) to ensure they're set
                 cursor.execute("""
                     UPDATE process_sessions 
-                    SET target_pressure=COALESCE(target_pressure, %s),
-                        duration_minutes=COALESCE(duration_minutes, %s),
-                        steps_data=COALESCE(steps_data, %s::jsonb),
-                        roll_category_name=COALESCE(NULLIF(roll_category_name, ''), %s),
-                        sub_roll_name=COALESCE(NULLIF(sub_roll_name, ''), %s),
-                        roll_id=COALESCE(NULLIF(roll_id, ''), %s),
-                        operator_name=COALESCE(NULLIF(operator_name, ''), %s),
-                        number_of_rolls=COALESCE(number_of_rolls, %s)
+                    SET target_pressure=%s,
+                        duration_minutes=%s,
+                        steps_data=%s::jsonb,
+                        roll_category_name=%s,
+                        sub_roll_name=%s,
+                        roll_id=%s,
+                        operator_name=%s,
+                        number_of_rolls=%s
                     WHERE id=%s
                 """, (
                     target_pressure, total_duration, steps_json,
@@ -1024,7 +1024,7 @@ def start_auto_program():
                     session_id
                 ))
                 conn.commit()
-                print(f"[API] Updated session {session_id} with roll details: category={roll_category_name}, qty={number_of_rolls}")
+                print(f"[API] Updated session {session_id} with roll details: category={roll_category_name}, qty={number_of_rolls}, operator={operator_name}")
             else:
                 # No existing session - safe to create new one
                 cursor.execute("""
