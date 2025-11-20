@@ -832,29 +832,50 @@ class SensorControlService:
                 # Auto program without session_id - must find API-created session, NEVER create
                 cursor = self.conn.cursor()
                 import time
-                for attempt in range(20):  # Even more retries
+                for attempt in range(25):  # Even more retries to handle race conditions
+                    # Use FOR UPDATE to lock the row and prevent other processes from creating duplicates
                     cursor.execute(
                         """SELECT id FROM process_sessions 
                            WHERE status='running' 
                            AND (roll_category_name IS NOT NULL OR steps_data IS NOT NULL)
                            ORDER BY id DESC 
-                           LIMIT 1"""
+                           LIMIT 1
+                           FOR UPDATE"""
                     )
                     result = cursor.fetchone()
                     
                     if result:
                         self.session_id = result[0]
                         print(f"[SESSION] Found API-created auto program session {self.session_id} (attempt {attempt+1})")
+                        conn.commit()  # Release the lock
                         cursor.close()
                         break
-                    elif attempt < 19:
-                        time.sleep(0.5)
+                    elif attempt < 24:
+                        conn.rollback()  # Release any locks
+                        time.sleep(0.4)
                         cursor.close()
                         cursor = self.conn.cursor()
                     else:
-                        print(f"[ERROR] Auto program session not found after 20 retries. Cannot proceed without API-created session.")
-                        cursor.close()
-                        return False
+                        # Last attempt - check for ANY running session (might be API one being created)
+                        cursor.execute(
+                            """SELECT id FROM process_sessions 
+                               WHERE status='running' 
+                               ORDER BY id DESC 
+                               LIMIT 1
+                               FOR UPDATE"""
+                        )
+                        any_session = cursor.fetchone()
+                        if any_session:
+                            self.session_id = any_session[0]
+                            print(f"[SESSION] Using any running session {self.session_id} as last resort")
+                            conn.commit()
+                            cursor.close()
+                            break
+                        else:
+                            print(f"[ERROR] Auto program session not found after 25 retries. Cannot proceed without API-created session.")
+                            conn.rollback()
+                            cursor.close()
+                            return False
                 # Skip all session creation logic for auto programs
                 existing_session_id = self.session_id if hasattr(self, 'session_id') else None
             

@@ -949,18 +949,20 @@ def start_auto_program():
         import json
         steps_json = json.dumps(steps)
         
-        # Check if a similar session already exists (within last 2 seconds) to prevent duplicates
+        # Use transaction with row-level locking to prevent race conditions
+        # Check for existing session with FOR UPDATE to lock the row
         cursor.execute("""
             SELECT id FROM process_sessions 
             WHERE status='running' 
             AND program_name=%s 
-            AND start_time > NOW() - INTERVAL '2 seconds'
+            AND start_time > NOW() - INTERVAL '5 seconds'
             AND (
                 (roll_category_name IS NOT NULL AND roll_category_name=%s) OR
                 (roll_category_name IS NULL AND %s IS NULL)
             )
             ORDER BY id DESC 
             LIMIT 1
+            FOR UPDATE
         """, (program_name, roll_category_name, roll_category_name))
         
         existing_session = cursor.fetchone()
@@ -973,10 +975,10 @@ def start_auto_program():
             cursor.execute("""
                 UPDATE process_sessions 
                 SET target_pressure=%s, duration_minutes=%s, steps_data=%s::jsonb,
-                    roll_category_name=COALESCE(roll_category_name, %s),
-                    sub_roll_name=COALESCE(sub_roll_name, %s),
-                    roll_id=COALESCE(roll_id, %s),
-                    operator_name=COALESCE(operator_name, %s),
+                    roll_category_name=COALESCE(NULLIF(roll_category_name, ''), %s),
+                    sub_roll_name=COALESCE(NULLIF(sub_roll_name, ''), %s),
+                    roll_id=COALESCE(NULLIF(roll_id, ''), %s),
+                    operator_name=COALESCE(NULLIF(operator_name, ''), %s),
                     number_of_rolls=COALESCE(number_of_rolls, %s)
                 WHERE id=%s
             """, (
@@ -986,27 +988,61 @@ def start_auto_program():
             ))
             conn.commit()
         else:
-            # Insert new session with all new fields
+            # Double-check: Also check for ANY running session with same program_name in last 5 seconds
+            # (in case roll_category_name wasn't set yet)
             cursor.execute("""
-                INSERT INTO process_sessions 
-                (program_name, target_pressure, duration_minutes, status, steps_data,
-                 roll_category_name, sub_roll_name, roll_id, operator_name, number_of_rolls)
-                VALUES (%s, %s, %s, 'running', %s::jsonb, %s, %s, %s, %s, %s)
-                RETURNING id
-            """, (
-                program_name,
-                target_pressure,
-                total_duration,
-                steps_json,
-                roll_category_name,
-                sub_roll_name,
-                roll_id,
-                operator_name,
-                number_of_rolls
-            ))
+                SELECT id FROM process_sessions 
+                WHERE status='running' 
+                AND program_name=%s 
+                AND start_time > NOW() - INTERVAL '5 seconds'
+                ORDER BY id DESC 
+                LIMIT 1
+                FOR UPDATE
+            """, (program_name,))
             
-            session_id = cursor.fetchone()[0]
-            conn.commit()
+            any_recent_session = cursor.fetchone()
+            
+            if any_recent_session:
+                # Found a recent session - use it and update with roll details
+                session_id = any_recent_session[0]
+                print(f"[API] Found recent session {session_id} without roll details, updating it with roll details")
+                cursor.execute("""
+                    UPDATE process_sessions 
+                    SET target_pressure=%s, duration_minutes=%s, steps_data=%s::jsonb,
+                        roll_category_name=%s,
+                        sub_roll_name=%s,
+                        roll_id=%s,
+                        operator_name=%s,
+                        number_of_rolls=%s
+                    WHERE id=%s
+                """, (
+                    target_pressure, total_duration, steps_json,
+                    roll_category_name, sub_roll_name, roll_id, operator_name, number_of_rolls,
+                    session_id
+                ))
+                conn.commit()
+            else:
+                # No existing session - safe to create new one
+                cursor.execute("""
+                    INSERT INTO process_sessions 
+                    (program_name, target_pressure, duration_minutes, status, steps_data,
+                     roll_category_name, sub_roll_name, roll_id, operator_name, number_of_rolls)
+                    VALUES (%s, %s, %s, 'running', %s::jsonb, %s, %s, %s, %s, %s)
+                    RETURNING id
+                """, (
+                    program_name,
+                    target_pressure,
+                    total_duration,
+                    steps_json,
+                    roll_category_name,
+                    sub_roll_name,
+                    roll_id,
+                    operator_name,
+                    number_of_rolls
+                ))
+                
+                session_id = cursor.fetchone()[0]
+                conn.commit()
         cursor.close()
         conn.close()
         
