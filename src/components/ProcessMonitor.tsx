@@ -388,11 +388,16 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
     if (isCompleted) {
       console.log('Session already completed, skipping stop API call to preserve completed status');
       
+      // Show completion message
       toast({
         title: "Process Completed",
         description: "Process completed successfully",
       });
-      onStop();
+      
+      // Small delay to ensure toast is visible before navigating
+      setTimeout(() => {
+        onStop();
+      }, 100);
       return;
     }
 
@@ -401,10 +406,53 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
       const response = await fetch(`${API_URL}/stop-control`, { method: 'POST' });
       const result = await response.json();
       console.log('Stop API response:', result);
+      
+      // Check if the API response indicates the session was already completed
+      if (result.message && (
+          result.message.includes('already completed') || 
+          result.message.includes('Session already completed')
+        )) {
+        console.log('API confirmed session was already completed');
+        toast({
+          title: "Process Completed",
+          description: "Process was already completed",
+        });
+        setTimeout(() => {
+          onStop();
+        }, 100);
+        return;
+      }
+      
+      // If no rows were affected, the session might have been completed
+      if (result.rows_affected === 0 && !result.message) {
+        console.log('No rows affected - session may have been completed');
+        // Re-check status one more time
+        try {
+          const statusResponse = await fetch(`${API_URL}/sessions`);
+          const sessions = await statusResponse.json();
+          const currentSession = sessionId 
+            ? sessions.find((s: any) => s.id.toString() === sessionId)
+            : sessions[0]; // Most recent
+          
+          if (currentSession && currentSession.status === 'completed') {
+            toast({
+              title: "Process Completed",
+              description: "Process was already completed",
+            });
+            setTimeout(() => {
+              onStop();
+            }, 100);
+            return;
+          }
+        } catch (e) {
+          console.error('Failed to re-check status:', e);
+        }
+      }
     } catch (e) {
       console.error('Failed to stop via API:', e);
     }
 
+    // Show stopped message only if we actually stopped it
     toast({
       title: "Process Stopped",
       description: "Process terminated by operator",

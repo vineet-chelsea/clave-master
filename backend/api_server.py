@@ -657,10 +657,21 @@ def stop_control():
         active_session = cursor.fetchone()
         
         if not active_session:
+            # Check if there's a recently completed session (within last minute)
+            # This helps detect if user is trying to stop a just-completed session
+            cursor.execute(
+                "SELECT id, status FROM process_sessions WHERE status='completed' AND end_time > NOW() - INTERVAL '1 minute' ORDER BY id DESC LIMIT 1"
+            )
+            recent_completed = cursor.fetchone()
             cursor.close()
             conn.close()
-            print("[API] No active session to stop")
-            return jsonify({'success': True, 'rows_affected': 0, 'message': 'No active session found'})
+            
+            if recent_completed:
+                print("[API] No active session, but found recently completed session")
+                return jsonify({'success': True, 'rows_affected': 0, 'message': 'Session already completed'})
+            else:
+                print("[API] No active session to stop")
+                return jsonify({'success': True, 'rows_affected': 0, 'message': 'No active session found'})
         
         session_id, current_status = active_session
         
@@ -687,7 +698,11 @@ def stop_control():
         cursor.close()
         conn.close()
         
-        return jsonify({'success': True, 'rows_affected': rows_affected})
+        return jsonify({
+            'success': True, 
+            'rows_affected': rows_affected,
+            'message': 'Session already completed' if current_status == 'completed' else None
+        })
     except Exception as e:
         print(f"[ERROR] Failed to stop: {e}")
         import traceback
