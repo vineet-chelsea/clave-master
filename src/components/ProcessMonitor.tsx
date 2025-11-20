@@ -124,11 +124,17 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
           
           if (currentSession) {
             setSessionData(currentSession);
-            if (currentSession.status === 'completed' || currentSession.status === 'stopped') {
-              console.log('Session completed:', currentSession.status);
+            if (currentSession.status === 'completed') {
+              console.log('Session completed, auto-redirecting to homepage');
               setStatus('paused');
               if (intervalRef.current) clearInterval(intervalRef.current);
+              if (logIntervalRef.current) clearInterval(logIntervalRef.current);
               completeProcess();
+            } else if (currentSession.status === 'stopped') {
+              // User manually stopped - don't auto-redirect
+              console.log('Session stopped by user');
+              setStatus('paused');
+              if (intervalRef.current) clearInterval(intervalRef.current);
             }
           }
         } catch (error) {
@@ -318,11 +324,20 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
     if (intervalRef.current) clearInterval(intervalRef.current);
     if (logIntervalRef.current) clearInterval(logIntervalRef.current);
 
-    // Session completion is handled by the sensor service
+    // Show completion toast
     toast({
       title: "Process Complete",
       description: `${displayName} completed successfully`,
     });
+
+    // Auto-redirect to homepage after a short delay (so toast is visible)
+    // Only redirect if status is 'completed' (not 'stopped' by user)
+    if (sessionData?.status === 'completed') {
+      setTimeout(() => {
+        console.log('[completeProcess] Auto-redirecting to homepage after completion');
+        onStop(); // This will reset mode to 'selection' (homepage)
+      }, 3000); // 3 second delay to show toast
+    }
   };
 
   const handlePause = async () => {
