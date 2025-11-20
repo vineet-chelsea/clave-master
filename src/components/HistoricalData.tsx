@@ -417,7 +417,6 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
             </div>
             {totalPages > 1 && totalSessions > perPage && (
               <div className="flex items-center gap-2">
-              <div className="flex items-center gap-2">
                 <Button
                   variant="outline"
                   size="sm"
