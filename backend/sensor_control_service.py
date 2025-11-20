@@ -895,14 +895,31 @@ class SensorControlService:
                                 print(f"[SESSION] Found auto program session {self.session_id}, using it instead of creating manual session")
                                 cursor.close()
                             else:
-                                # No auto program session, safe to create manual session
+                                # No auto program session - but check for duplicate manual sessions created within last 5 seconds
                                 cursor.execute(
-                                    "INSERT INTO process_sessions (program_name, status, start_time) VALUES (%s, %s, %s) RETURNING id",
-                                    (program_name, 'running', get_ist_now())
+                                    """SELECT id FROM process_sessions 
+                                       WHERE status='running' 
+                                       AND program_name=%s 
+                                       AND start_time > NOW() - INTERVAL '5 seconds'
+                                       ORDER BY id DESC LIMIT 1""",
+                                    (program_name,)
                                 )
-                                self.session_id = cursor.fetchone()[0]
-                                print(f"[SESSION] Created new manual session {self.session_id}")
-                                cursor.close()
+                                recent_session = cursor.fetchone()
+                                
+                                if recent_session:
+                                    # Found a recent duplicate - use it instead
+                                    self.session_id = recent_session[0]
+                                    print(f"[SESSION] Found recent duplicate session {self.session_id}, using it instead of creating new one")
+                                    cursor.close()
+                                else:
+                                    # No recent duplicate, safe to create manual session
+                                    cursor.execute(
+                                        "INSERT INTO process_sessions (program_name, status, start_time) VALUES (%s, %s, %s) RETURNING id",
+                                        (program_name, 'running', get_ist_now())
+                                    )
+                                    self.session_id = cursor.fetchone()[0]
+                                    print(f"[SESSION] Created new manual session {self.session_id}")
+                                    cursor.close()
                             break
             
             # Load program steps if provided (auto program mode)

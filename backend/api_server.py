@@ -161,7 +161,49 @@ def get_sessions():
             for row in rows
         ]
         
-        return jsonify(sessions)
+        # Deduplicate sessions: If multiple sessions have same start_time, program_name, and roll_category_name,
+        # keep only the one with roll details (roll_category_name is not null) or the one with more details
+        seen_sessions = {}
+        deduplicated = []
+        
+        for session in sessions:
+            # Create a key based on start_time, program_name, and roll_category_name
+            # For auto programs, use roll_category_name as part of the key
+            if session['roll_category_name']:
+                key = f"{session['start_time']}_{session['program_name']}_{session['roll_category_name']}"
+            else:
+                key = f"{session['start_time']}_{session['program_name']}"
+            
+            if key not in seen_sessions:
+                # First time seeing this key - add it
+                seen_sessions[key] = session
+                deduplicated.append(session)
+            else:
+                # Duplicate found - keep the one with more details (roll_category_name, etc.)
+                existing = seen_sessions[key]
+                
+                # Prefer session with roll_category_name over one without
+                if session['roll_category_name'] and not existing['roll_category_name']:
+                    # Replace with the one that has roll details
+                    deduplicated.remove(existing)
+                    deduplicated.append(session)
+                    seen_sessions[key] = session
+                elif session['roll_category_name'] == existing['roll_category_name']:
+                    # Both have same roll_category_name - prefer the one with more non-null fields
+                    session_fields = sum(1 for v in [session.get('roll_category_name'), session.get('sub_roll_name'), 
+                                                     session.get('roll_id'), session.get('operator_name'), 
+                                                     session.get('number_of_rolls')] if v is not None)
+                    existing_fields = sum(1 for v in [existing.get('roll_category_name'), existing.get('sub_roll_name'),
+                                                       existing.get('roll_id'), existing.get('operator_name'),
+                                                       existing.get('number_of_rolls')] if v is not None)
+                    
+                    if session_fields > existing_fields:
+                        deduplicated.remove(existing)
+                        deduplicated.append(session)
+                        seen_sessions[key] = session
+                # Otherwise keep the existing one
+        
+        return jsonify(deduplicated)
     except Exception as e:
         import traceback
         print(f"[ERROR] get_sessions: {e}")
