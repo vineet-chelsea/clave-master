@@ -40,6 +40,9 @@ def init_database():
         
         cursor = conn.cursor()
         
+        # Set timezone to IST for consistency
+        cursor.execute("SET timezone = 'Asia/Kolkata'")
+        
         print("[OK] Connected to database")
         
         # Check if tables already exist

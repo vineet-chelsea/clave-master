@@ -728,8 +728,8 @@ def start_control():
         
         # Store control parameters in session metadata
         cursor.execute(
-            "INSERT INTO process_sessions (program_name, status, start_time, target_pressure, duration_minutes) VALUES (%s, %s, NOW(), %s, %s) RETURNING id",
-            (program_name, 'running', float(target_pressure), int(duration_minutes))
+            "INSERT INTO process_sessions (program_name, status, start_time, target_pressure, duration_minutes) VALUES (%s, %s, %s, %s, %s) RETURNING id",
+            (program_name, 'running', get_ist_now(), float(target_pressure), int(duration_minutes))
         )
         print(f"[API] Created session with target={target_pressure}, duration={duration_minutes}")
         session_id = cursor.fetchone()[0]
@@ -847,8 +847,8 @@ def stop_control():
                 
                 # Now safe to update - status is confirmed to be 'running' or 'paused'
                 cursor.execute(
-                    "UPDATE process_sessions SET status='stopped', end_time=NOW() WHERE id=%s AND status IN ('running', 'paused')",
-                    (session_id,)
+                    "UPDATE process_sessions SET status='stopped', end_time=%s WHERE id=%s AND status IN ('running', 'paused')",
+                    (get_ist_now(), session_id)
                 )
                 rows_affected = cursor.rowcount
                 conn.commit()
@@ -900,8 +900,8 @@ def stop_control():
         # Only update if status is 'running' or 'paused' (explicit check)
         if current_status in ('running', 'paused'):
             cursor.execute(
-                "UPDATE process_sessions SET status='stopped', end_time=NOW() WHERE id=%s AND status IN ('running', 'paused')",
-                (session_id,)
+                "UPDATE process_sessions SET status='stopped', end_time=%s WHERE id=%s AND status IN ('running', 'paused')",
+                (get_ist_now(), session_id)
             )
             rows_affected = cursor.rowcount
             conn.commit()
@@ -1212,8 +1212,8 @@ def start_auto_program():
         cursor.execute("""
             INSERT INTO process_sessions 
             (program_name, target_pressure, duration_minutes, status, steps_data,
-             roll_category_name, sub_roll_name, roll_id, operator_name, number_of_rolls)
-            VALUES (%s, %s, %s, 'running', %s::jsonb, %s, %s, %s, %s, %s)
+             roll_category_name, sub_roll_name, roll_id, operator_name, number_of_rolls, start_time)
+            VALUES (%s, %s, %s, 'running', %s::jsonb, %s, %s, %s, %s, %s, %s)
             RETURNING id
         """, (
             program_name,
@@ -1224,7 +1224,8 @@ def start_auto_program():
             sub_roll_name,
             roll_id,
             operator_name,
-            number_of_rolls
+            number_of_rolls,
+            get_ist_now()  # Use IST for start_time to match end_time timezone
         ))
         
         session_id = cursor.fetchone()[0]
