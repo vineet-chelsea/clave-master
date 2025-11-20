@@ -1010,6 +1010,7 @@ class SensorControlService:
             
             if self.end_time and get_ist_now().timestamp() >= self.end_time:
                 # Time elapsed
+                print(f"[COMPLETE] Time elapsed for session {self.session_id}, calling complete_session()")
                 self.complete_session()
                 break
             
@@ -1087,15 +1088,27 @@ class SensorControlService:
         if self.conn and self.session_id:
             try:
                 cursor = self.conn.cursor()
+                # Check current status before updating
+                cursor.execute(
+                    "SELECT status FROM process_sessions WHERE id=%s",
+                    (self.session_id,)
+                )
+                current_status = cursor.fetchone()
+                if current_status:
+                    print(f"[COMPLETE] Current status before completion: {current_status[0]}")
+                
                 cursor.execute(
                     "UPDATE process_sessions SET status='completed', end_time=%s WHERE id=%s",
                     (get_ist_now(), self.session_id)
                 )
+                rows_affected = cursor.rowcount
                 self.conn.commit()
                 cursor.close()
-                print(f"[COMPLETE] Session {self.session_id} completed")
+                print(f"[COMPLETE] Session {self.session_id} completed, rows_affected: {rows_affected}")
             except Exception as e:
                 print(f"[ERROR] Completing session: {e}")
+                import traceback
+                traceback.print_exc()
         
         # Stop buzzer thread and turn off buzzer
         if self.buzzer_thread and self.buzzer_thread.is_alive():
