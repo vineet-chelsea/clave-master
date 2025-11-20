@@ -818,12 +818,14 @@ class SensorControlService:
                 
                 if found_session:
                     # Session found, skip the rest of the session creation logic
-                    pass
+                    # Set existing_session_id to prevent any further session creation
+                    existing_session_id = self.session_id
                 elif not steps_data:
                     # Manual mode fallback - continue to create session
                     pass
                 else:
                     # Auto program - session not found, return False
+                    print(f"[ERROR] Auto program session {existing_session_id} not found. Cannot proceed.")
                     return False
             
             # CRITICAL: If steps_data exists (auto program), NEVER create a session - only use existing one
@@ -879,8 +881,15 @@ class SensorControlService:
                 # Skip all session creation logic for auto programs
                 existing_session_id = self.session_id if hasattr(self, 'session_id') else None
             
+            # CRITICAL CHECK: If this is an auto program (has steps_data), NEVER proceed to session creation
+            # Even if existing_session_id is None, we should have found a session above
+            if steps_data and (not existing_session_id and (not hasattr(self, 'session_id') or not self.session_id)):
+                print(f"[ERROR] Auto program session not found. Cannot create session for auto programs. Returning False.")
+                return False
+            
             # If no session_id provided or session not found (and not already set above), try to find existing or create new
-            if not existing_session_id and (not hasattr(self, 'session_id') or not self.session_id):
+            # BUT ONLY FOR MANUAL MODE (steps_data is None or empty)
+            if not steps_data and not existing_session_id and (not hasattr(self, 'session_id') or not self.session_id):
                 cursor = self.conn.cursor()
                 import time
                 
