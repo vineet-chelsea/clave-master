@@ -900,6 +900,27 @@ class SensorControlService:
                 print(f"[ERROR] Auto program session not found. Cannot create session for auto programs. Returning False.")
                 return False
             
+            # ABSOLUTE CHECK: Before creating ANY session, check if there's ANY running session
+            # This prevents creating a duplicate session if API is still creating/updating one
+            if not existing_session_id and (not hasattr(self, 'session_id') or not self.session_id):
+                cursor = self.conn.cursor()
+                cursor.execute(
+                    "SELECT id FROM process_sessions WHERE status='running' ORDER BY id DESC LIMIT 1 FOR UPDATE"
+                )
+                any_running = cursor.fetchone()
+                conn.commit()
+                cursor.close()
+                
+                if any_running:
+                    # There's a running session - use it instead of creating a new one
+                    # This prevents duplicates when API is creating/updating a session
+                    self.session_id = any_running[0]
+                    print(f"[SESSION] Found existing running session {self.session_id}, using it to prevent duplicate")
+                    existing_session_id = self.session_id
+                    # If this is an auto program, we should NOT have reached here, but use the session anyway
+                    if steps_data:
+                        print(f"[WARNING] Auto program but using existing session {self.session_id} - API may be updating it")
+            
             # If no session_id provided or session not found (and not already set above), try to find existing or create new
             # BUT ONLY FOR MANUAL MODE (steps_data is None or empty)
             if not steps_data and not existing_session_id and (not hasattr(self, 'session_id') or not self.session_id):
