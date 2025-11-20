@@ -189,45 +189,14 @@ const Index = () => {
   };
 
   const handleStartProgram = async (program: Program) => {
-    try {
-      // Calculate total duration and extract steps
-      const totalDuration = program.steps.reduce((sum, step) => sum + step.duration_minutes, 0);
-      
-      // Send program steps to backend for multi-step execution
-      const response = await fetch(`${API_URL}/start-auto-program`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          program_name: program.program_name,
-          steps: program.steps,
-          total_duration: totalDuration
-        })
-      });
-      
-      const result = await response.json();
-      
-      console.log('API Response:', result);
-      
-      if (result.success) {
-        setSelectedProgram(program);
-        setMode('auto-running');
-        toast({
-          title: "Program Started",
-          description: `Starting ${program.program_name}`,
-        });
-      } else {
-        console.error('API returned error:', result.error);
-        throw new Error(result.error || 'Failed to start program');
-      }
-    } catch (error) {
-      console.error('Failed to start program:', error);
-      console.error('Error details:', error instanceof Error ? error.stack : '');
-      toast({
-        title: "Failed to Start",
-        description: error instanceof Error ? error.message : "Could not start program",
-        variant: "destructive"
-      });
-    }
+    // ProgramSelection already made the API call with roll details
+    // Just update the UI state - don't make another API call
+    setSelectedProgram(program);
+    setMode('auto-running');
+    toast({
+      title: "Program Started",
+      description: `Starting ${program.program_name}`,
+    });
   };
 
   const handleManualStart = async (targetPressure: number, duration: number) => {
