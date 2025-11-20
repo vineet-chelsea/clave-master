@@ -345,7 +345,7 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
   };
 
   const handleStop = async () => {
-    console.log('Stopping process...');
+    console.log('Stopping process...', { sessionId, sessionDataStatus: sessionData?.status });
     
     // Fetch latest session status before checking to avoid race conditions
     let currentStatus = sessionData?.status;
@@ -356,20 +356,39 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
         const currentSession = sessions.find((s: any) => s.id.toString() === sessionId);
         if (currentSession) {
           currentStatus = currentSession.status;
+          console.log('Fetched latest session status:', currentStatus);
           setSessionData(currentSession); // Update state with latest data
+        } else {
+          console.warn('Session not found in API response:', sessionId);
         }
       } catch (e) {
         console.error('Failed to fetch latest session status:', e);
       }
+    } else {
+      console.warn('No sessionId available for status check');
     }
+    
+    console.log('Final status check:', { currentStatus, isCompleted: currentStatus === 'completed' });
     
     // If session is already completed, don't call stop API - just go back
     // This preserves the 'completed' status instead of changing it to 'stopped'
-    if (currentStatus === 'completed') {
+    // Check case-insensitively in case of any variations
+    if (currentStatus && currentStatus.toLowerCase() === 'completed') {
       console.log('Session already completed, skipping stop API call to preserve completed status');
+      
+      // Clean up intervals
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = undefined;
+      }
+      if (logIntervalRef.current) {
+        clearInterval(logIntervalRef.current);
+        logIntervalRef.current = undefined;
+      }
+      
       toast({
         title: "Process Completed",
-        description: "Process was already completed",
+        description: "Process completed successfully",
       });
       onStop();
       return;
