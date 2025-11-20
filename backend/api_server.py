@@ -950,27 +950,24 @@ def start_auto_program():
         steps_json = json.dumps(steps)
         
         # Use transaction with row-level locking to prevent race conditions
-        # Check for existing session with FOR UPDATE to lock the row
+        # Check for ANY running session with same program_name in last 5 seconds
+        # This catches sessions created by sensor service (without roll details) and updates them
         cursor.execute("""
             SELECT id FROM process_sessions 
             WHERE status='running' 
             AND program_name=%s 
             AND start_time > NOW() - INTERVAL '5 seconds'
-            AND (
-                (roll_category_name IS NOT NULL AND roll_category_name=%s) OR
-                (roll_category_name IS NULL AND %s IS NULL)
-            )
             ORDER BY id DESC 
             LIMIT 1
             FOR UPDATE
-        """, (program_name, roll_category_name, roll_category_name))
+        """, (program_name,))
         
         existing_session = cursor.fetchone()
         
         if existing_session:
-            # Session already exists - use it instead of creating duplicate
+            # Session already exists - use it and update with roll details
             session_id = existing_session[0]
-            print(f"[API] Found existing session {session_id}, using it instead of creating duplicate")
+            print(f"[API] Found existing session {session_id}, updating it with roll details")
             # Update the existing session with roll details - ALWAYS set these values to ensure they're populated
             cursor.execute("""
                 UPDATE process_sessions 
@@ -989,46 +986,8 @@ def start_auto_program():
                 session_id
             ))
             conn.commit()
-            print(f"[API] Updated existing session {session_id} with roll details: category={roll_category_name}, qty={number_of_rolls}, operator={operator_name}")
+            print(f"[API] Updated session {session_id} with roll details: category={roll_category_name}, qty={number_of_rolls}, operator={operator_name}")
         else:
-            # Double-check: Also check for ANY running session with same program_name in last 5 seconds
-            # (in case roll_category_name wasn't set yet)
-            cursor.execute("""
-                SELECT id FROM process_sessions 
-                WHERE status='running' 
-                AND program_name=%s 
-                AND start_time > NOW() - INTERVAL '5 seconds'
-                ORDER BY id DESC 
-                LIMIT 1
-                FOR UPDATE
-            """, (program_name,))
-            
-            any_recent_session = cursor.fetchone()
-            
-            if any_recent_session:
-                # Found a recent session - use it and update with roll details
-                session_id = any_recent_session[0]
-                print(f"[API] Found recent session {session_id} without roll details, updating it with roll details")
-                # Update with roll details - ALWAYS set these values (don't use COALESCE) to ensure they're set
-                cursor.execute("""
-                    UPDATE process_sessions 
-                    SET target_pressure=%s,
-                        duration_minutes=%s,
-                        steps_data=%s::jsonb,
-                        roll_category_name=%s,
-                        sub_roll_name=%s,
-                        roll_id=%s,
-                        operator_name=%s,
-                        number_of_rolls=%s
-                    WHERE id=%s
-                """, (
-                    target_pressure, total_duration, steps_json,
-                    roll_category_name, sub_roll_name, roll_id, operator_name, number_of_rolls,
-                    session_id
-                ))
-                conn.commit()
-                print(f"[API] Updated session {session_id} with roll details: category={roll_category_name}, qty={number_of_rolls}, operator={operator_name}")
-            else:
                 # No existing session - safe to create new one
                 cursor.execute("""
                     INSERT INTO process_sessions 
