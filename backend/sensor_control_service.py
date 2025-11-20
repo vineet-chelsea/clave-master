@@ -908,9 +908,35 @@ class SensorControlService:
                         existing_session_id = self.session_id
                     else:
                         # No running session - wait for API to create one
-                    # Auto program - must find API-created session, retry multiple times
-                    # Check for sessions with roll_category_name OR steps_data (both indicate API-created auto program)
-                    for attempt in range(15):  # Even more retries for auto programs
+                        for attempt in range(30):  # Even more retries to handle race conditions
+                            # Check for ANY running session first (API might be creating/updating it)
+                            cursor.execute(
+                                """SELECT id FROM process_sessions 
+                                   WHERE status='running' 
+                                   ORDER BY id DESC 
+                                   LIMIT 1
+                                   FOR UPDATE"""
+                            )
+                            result = cursor.fetchone()
+                            
+                            if result:
+                                self.session_id = result[0]
+                                print(f"[SESSION] Found running session {self.session_id} (attempt {attempt+1}) - API may be updating with roll details")
+                                conn.commit()  # Release the lock
+                                cursor.close()
+                                break
+                            elif attempt < 29:
+                                conn.rollback()  # Release any locks
+                                time.sleep(0.3)
+                                cursor.close()
+                                cursor = self.conn.cursor()
+                            else:
+                                print(f"[ERROR] No running session found after 30 retries. API must create sessions for auto programs.")
+                                conn.rollback()
+                                cursor.close()
+                                return False
+                        # Skip all session creation logic for auto programs
+                        existing_session_id = self.session_id if hasattr(self, 'session_id') else None
                         # First, try to find session with roll_category_name (most specific)
                         cursor.execute(
                             """SELECT id FROM process_sessions 
