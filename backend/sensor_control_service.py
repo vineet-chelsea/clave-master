@@ -826,6 +826,38 @@ class SensorControlService:
                     # Auto program - session not found, return False
                     return False
             
+            # CRITICAL: If steps_data exists (auto program), NEVER create a session - only use existing one
+            # This must be checked BEFORE any session creation logic
+            if steps_data and (not existing_session_id and (not hasattr(self, 'session_id') or not self.session_id)):
+                # Auto program without session_id - must find API-created session, NEVER create
+                cursor = self.conn.cursor()
+                import time
+                for attempt in range(20):  # Even more retries
+                    cursor.execute(
+                        """SELECT id FROM process_sessions 
+                           WHERE status='running' 
+                           AND (roll_category_name IS NOT NULL OR steps_data IS NOT NULL)
+                           ORDER BY id DESC 
+                           LIMIT 1"""
+                    )
+                    result = cursor.fetchone()
+                    
+                    if result:
+                        self.session_id = result[0]
+                        print(f"[SESSION] Found API-created auto program session {self.session_id} (attempt {attempt+1})")
+                        cursor.close()
+                        break
+                    elif attempt < 19:
+                        time.sleep(0.5)
+                        cursor.close()
+                        cursor = self.conn.cursor()
+                    else:
+                        print(f"[ERROR] Auto program session not found after 20 retries. Cannot proceed without API-created session.")
+                        cursor.close()
+                        return False
+                # Skip all session creation logic for auto programs
+                existing_session_id = self.session_id if hasattr(self, 'session_id') else None
+            
             # If no session_id provided or session not found (and not already set above), try to find existing or create new
             if not existing_session_id and (not hasattr(self, 'session_id') or not self.session_id):
                 cursor = self.conn.cursor()
