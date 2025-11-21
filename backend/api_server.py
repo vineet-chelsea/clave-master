@@ -726,6 +726,16 @@ def start_control():
         conn = get_db_connection()
         cursor = conn.cursor()
         
+        # CRITICAL: Stop all old running/paused sessions before starting new one
+        cursor.execute("""
+            UPDATE process_sessions 
+            SET status='stopped', end_time=%s 
+            WHERE status IN ('running', 'paused')
+        """, (get_ist_now(),))
+        old_sessions_stopped = cursor.rowcount
+        if old_sessions_stopped > 0:
+            print(f"[API] Stopped {old_sessions_stopped} old running/paused session(s) before starting new manual control")
+        
         # Store control parameters in session metadata
         cursor.execute(
             "INSERT INTO process_sessions (program_name, status, start_time, target_pressure, duration_minutes) VALUES (%s, %s, %s, %s, %s) RETURNING id",
@@ -754,7 +764,7 @@ def start_control():
 
 @app.route('/api/stop-control', methods=['POST'])
 def stop_control():
-    """Stop current control session - checks specific session ID if provided, never updates 'completed' sessions"""
+    """Stop current control session"""
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -764,24 +774,19 @@ def stop_control():
         if request.is_json:
             data = request.get_json()
             session_id = data.get('session_id') if data else None
-            print(f"[API] stop-control received session_id: {session_id}, request data: {data}")
-        else:
-            print("[API] stop-control request is not JSON, content-type:", request.content_type)
         
-        # If session_id is provided, check that specific session
+        # If session_id is provided, update that specific session
         if session_id:
             try:
                 session_id = int(session_id)
-                print(f"[API] Checking specific session {session_id}")
-            except (ValueError, TypeError) as e:
+            except (ValueError, TypeError):
                 cursor.close()
                 conn.close()
-                print(f"[API] Invalid session_id format: {session_id}, error: {e}")
                 return jsonify({'success': False, 'error': 'Invalid session_id'}), 400
             
-            # Get the specific session's status
+            # Check if session exists and is not already completed
             cursor.execute(
-                "SELECT id, status FROM process_sessions WHERE id=%s",
+                "SELECT status FROM process_sessions WHERE id=%s",
                 (session_id,)
             )
             session = cursor.fetchone()
@@ -789,134 +794,44 @@ def stop_control():
             if not session:
                 cursor.close()
                 conn.close()
-                print(f"[API] Session {session_id} not found in database")
                 return jsonify({'success': False, 'error': 'Session not found'}), 404
             
-            found_session_id, current_status = session
-            print(f"[API] Found session {found_session_id} with status: {current_status}")
+            current_status = session[0]
             
-            # CRITICAL: Never update if status is 'completed'
+            # Don't update if already completed
             if current_status == 'completed':
                 cursor.close()
                 conn.close()
-                print(f"[API] Session {session_id} is already completed, refusing to update")
-                return jsonify({
-                    'success': True, 
-                    'rows_affected': 0, 
-                    'message': 'Session already completed'
-                })
-            
-            # Only update if status is 'running' or 'paused'
-            if current_status in ('running', 'paused'):
-                # Simple final check: Query DB one more time right before UPDATE to ensure status hasn't changed
-                cursor.execute(
-                    "SELECT status FROM process_sessions WHERE id=%s",
-                    (session_id,)
-                )
-                final_status_check = cursor.fetchone()
-                
-                if not final_status_check:
-                    cursor.close()
-                    conn.close()
-                    print(f"[API] Final check: Session {session_id} not found")
-                    return jsonify({'success': False, 'error': 'Session not found'}), 404
-                
-                final_status = final_status_check[0]
-                
-                # If status is 'completed', refuse to update
-                if final_status == 'completed':
-                    cursor.close()
-                    conn.close()
-                    print(f"[API] Final check: Session {session_id} is completed, refusing to update")
-                    return jsonify({
-                        'success': True, 
-                        'rows_affected': 0, 
-                        'message': 'Session already completed'
-                    })
-                
-                # Only proceed if status is still 'running' or 'paused'
-                if final_status not in ('running', 'paused'):
-                    cursor.close()
-                    conn.close()
-                    print(f"[API] Final check: Session {session_id} has status '{final_status}', not updating")
-                    return jsonify({
-                        'success': True, 
-                        'rows_affected': 0,
-                        'message': f"Session status is '{final_status}', cannot stop"
-                    })
-                
-                # Now safe to update - status is confirmed to be 'running' or 'paused'
-                cursor.execute(
-                    "UPDATE process_sessions SET status='stopped', end_time=%s WHERE id=%s AND status IN ('running', 'paused')",
-                    (get_ist_now(), session_id)
-                )
-                rows_affected = cursor.rowcount
-                conn.commit()
-                print(f"[API] Stopped session {session_id} (status was: {final_status}), rows_affected: {rows_affected}")
-            else:
-                rows_affected = 0
-                print(f"[API] Session {session_id} has status '{current_status}', not updating")
-            
-            cursor.close()
-            conn.close()
-            
-            return jsonify({
-                'success': True, 
-                'rows_affected': rows_affected,
-                'message': 'Session already completed' if current_status == 'completed' else None
-            })
-        
-        # Fallback: If no session_id provided, get the most recent running or paused session
-        cursor.execute(
-            "SELECT id, status FROM process_sessions WHERE status IN ('running', 'paused') ORDER BY id DESC LIMIT 1"
-        )
-        active_session = cursor.fetchone()
-        
-        if not active_session:
-            # Check if there's a recently completed session (within last minute)
-            cursor.execute(
-                "SELECT id, status FROM process_sessions WHERE status='completed' AND end_time > NOW() - INTERVAL '1 minute' ORDER BY id DESC LIMIT 1"
-            )
-            recent_completed = cursor.fetchone()
-            cursor.close()
-            conn.close()
-            
-            if recent_completed:
-                print("[API] No active session, but found recently completed session")
                 return jsonify({'success': True, 'rows_affected': 0, 'message': 'Session already completed'})
-            else:
-                print("[API] No active session to stop")
-                return jsonify({'success': True, 'rows_affected': 0, 'message': 'No active session found'})
-        
-        session_id, current_status = active_session
-        
-        # Double-check: Never update if status is 'completed' (safety check)
-        if current_status == 'completed':
-            cursor.close()
-            conn.close()
-            print(f"[API] Session {session_id} is already completed, not updating")
-            return jsonify({'success': True, 'rows_affected': 0, 'message': 'Session already completed'})
-        
-        # Only update if status is 'running' or 'paused' (explicit check)
-        if current_status in ('running', 'paused'):
+            
+            # Update to stopped if running or paused
             cursor.execute(
                 "UPDATE process_sessions SET status='stopped', end_time=%s WHERE id=%s AND status IN ('running', 'paused')",
                 (get_ist_now(), session_id)
             )
             rows_affected = cursor.rowcount
             conn.commit()
-            print(f"[API] Stopped session {session_id} (status was: {current_status})")
-        else:
-            rows_affected = 0
-            print(f"[API] Session {session_id} has status '{current_status}', not updating")
+            cursor.close()
+            conn.close()
+            
+            return jsonify({
+                'success': True,
+                'rows_affected': rows_affected
+            })
         
+        # Fallback: Update most recent running or paused session
+        cursor.execute(
+            "UPDATE process_sessions SET status='stopped', end_time=%s WHERE status IN ('running', 'paused') ORDER BY id DESC LIMIT 1",
+            (get_ist_now(),)
+        )
+        rows_affected = cursor.rowcount
+        conn.commit()
         cursor.close()
         conn.close()
         
         return jsonify({
-            'success': True, 
-            'rows_affected': rows_affected,
-            'message': 'Session already completed' if current_status == 'completed' else None
+            'success': True,
+            'rows_affected': rows_affected
         })
     except Exception as e:
         print(f"[ERROR] Failed to stop: {e}")
@@ -1203,6 +1118,17 @@ def start_auto_program():
         # Store program steps in session
         conn = get_db_connection()
         cursor = conn.cursor()
+        
+        # CRITICAL: Stop all old running/paused sessions before starting new one
+        # This ensures only one process runs at a time
+        cursor.execute("""
+            UPDATE process_sessions 
+            SET status='stopped', end_time=%s 
+            WHERE status IN ('running', 'paused')
+        """, (get_ist_now(),))
+        old_sessions_stopped = cursor.rowcount
+        if old_sessions_stopped > 0:
+            print(f"[API] Stopped {old_sessions_stopped} old running/paused session(s) before starting new process")
         
         # Convert steps to JSON string for storage
         import json

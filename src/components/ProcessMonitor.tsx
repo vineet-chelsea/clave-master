@@ -369,8 +369,6 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
   };
 
   const handleStop = async () => {
-    console.log('[handleStop] Starting...', { sessionId, sessionDataStatus: sessionData?.status });
-    
     // Clean up intervals first
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
@@ -381,129 +379,9 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
       logIntervalRef.current = undefined;
     }
     
-    // Step 1: Check sessionData.status first (fastest, no API call needed)
-    let currentStatus = sessionData?.status;
-    let isCompleted = false;
-    
-    if (currentStatus && currentStatus.toLowerCase() === 'completed') {
-      console.log('[handleStop] Status already completed in sessionData:', currentStatus);
-      isCompleted = true;
-    } else if (sessionId) {
-      // Step 2: Fetch latest status from API if sessionId exists
-      try {
-        console.log('[handleStop] Fetching latest status from API for sessionId:', sessionId);
-        const response = await fetch(`${API_URL}/sessions`);
-        const data = await response.json();
-        
-        // Handle both old format (array) and new format (object with pagination wrapper)
-        let sessionsArray: any[] = [];
-        if (Array.isArray(data)) {
-          // Old format - backward compatibility
-          sessionsArray = data;
-          console.log('[handleStop] API returned array format, count:', sessionsArray.length);
-        } else if (data.sessions && Array.isArray(data.sessions)) {
-          // New format with pagination wrapper
-          sessionsArray = data.sessions;
-          console.log('[handleStop] API returned pagination format, sessions count:', sessionsArray.length);
-        } else {
-          console.warn('[handleStop] Unexpected API response format:', data);
-        }
-        
-        // Find the current session
-        const currentSession = sessionsArray.find((s: any) => s.id.toString() === sessionId);
-        if (currentSession) {
-          currentStatus = currentSession.status;
-          isCompleted = currentStatus && currentStatus.toLowerCase() === 'completed';
-          console.log('[handleStop] Found session in API response:', { 
-            sessionId, 
-            status: currentStatus, 
-            isCompleted 
-          });
-          setSessionData(currentSession); // Update state with latest data
-        } else {
-          console.warn('[handleStop] Session not found in API response:', sessionId, 'Total sessions:', sessionsArray.length);
-          // Fallback to sessionData if API doesn't have the session
-          if (sessionData?.status) {
-            currentStatus = sessionData.status;
-            isCompleted = currentStatus.toLowerCase() === 'completed';
-            console.log('[handleStop] Using sessionData as fallback:', { status: currentStatus, isCompleted });
-          }
-        }
-      } catch (e) {
-        console.error('[handleStop] Failed to fetch latest session status:', e);
-        // Fallback to sessionData if API call fails
-        if (sessionData?.status) {
-          currentStatus = sessionData.status;
-          isCompleted = currentStatus.toLowerCase() === 'completed';
-          console.log('[handleStop] API call failed, using sessionData as fallback:', { status: currentStatus, isCompleted });
-        }
-      }
-    } else {
-      // Step 3: If no sessionId, check sessionData directly
-      isCompleted = sessionData?.status && sessionData.status.toLowerCase() === 'completed';
-      console.log('[handleStop] No sessionId, checking sessionData directly:', { 
-        status: sessionData?.status, 
-        isCompleted 
-      });
-    }
-    
-    // If session is already completed, don't call stop API - just go back
-    // This preserves the 'completed' status instead of changing it to 'stopped'
-    if (isCompleted) {
-      console.log('Session already completed, skipping stop API call to preserve completed status');
-      
-      // Show completion message
-      toast({
-        title: "Process Completed",
-        description: "Process completed successfully",
-      });
-      
-      // Small delay to ensure toast is visible before navigating
-      setTimeout(() => {
-        onStop();
-      }, 100);
-      return;
-    }
-
-    // Stop session via API (only if not already completed)
-    // Before calling API, do one final check to ensure status hasn't changed to completed
-    // This handles race conditions where process just completed
-    if (sessionId && !isCompleted) {
-      try {
-        console.log('[handleStop] Final status check before API call...');
-        const finalCheckResponse = await fetch(`${API_URL}/sessions`);
-        const finalCheckData = await finalCheckResponse.json();
-        
-        // Handle pagination wrapper format
-        let finalSessionsArray: any[] = [];
-        if (Array.isArray(finalCheckData)) {
-          finalSessionsArray = finalCheckData;
-        } else if (finalCheckData.sessions && Array.isArray(finalCheckData.sessions)) {
-          finalSessionsArray = finalCheckData.sessions;
-        }
-        
-        const finalSession = finalSessionsArray.find((s: any) => s.id.toString() === sessionId);
-        if (finalSession && finalSession.status && finalSession.status.toLowerCase() === 'completed') {
-          console.log('[handleStop] Final check detected completed status, skipping API call');
-          toast({
-            title: "Process Completed",
-            description: "Process completed successfully",
-          });
-          setTimeout(() => {
-            onStop();
-          }, 100);
-          return;
-        }
-      } catch (e) {
-        console.warn('[handleStop] Final check failed, proceeding with API call:', e);
-      }
-    }
-    
-    // Pass sessionId to backend so it can check the specific session's status
-    // Only send sessionId if it's valid (not empty, not 'local-*')
+    // Stop session via API
     const validSessionId = sessionId && !sessionId.startsWith('local-') ? sessionId : null;
     try {
-      console.log('[handleStop] Calling stop-control API with sessionId:', validSessionId || 'none (will use fallback)');
       const requestBody: any = {};
       if (validSessionId) {
         requestBody.session_id = validSessionId;
@@ -516,69 +394,28 @@ export function ProcessMonitor({ program, manualConfig, onStop }: ProcessMonitor
         body: JSON.stringify(requestBody)
       });
       const result = await response.json();
-      console.log('[handleStop] Stop API response:', result);
       
-      // Check if the API response indicates the session was already completed
-      if (result.message && (
-          result.message.includes('already completed') || 
-          result.message.includes('Session already completed')
-        )) {
-        console.log('API confirmed session was already completed');
+      // Check if session was already completed
+      if (result.message && result.message.includes('already completed')) {
         toast({
           title: "Process Completed",
           description: "Process was already completed",
         });
-        setTimeout(() => {
-          onStop();
-        }, 100);
-        return;
-      }
-      
-      // If no rows were affected, the session might have been completed
-      if (result.rows_affected === 0 && !result.message) {
-        console.log('[handleStop] No rows affected - re-checking status');
-        // Re-check status one more time
-        try {
-          const statusResponse = await fetch(`${API_URL}/sessions`);
-          const statusData = await statusResponse.json();
-          
-          // Handle pagination wrapper format
-          let statusSessionsArray: any[] = [];
-          if (Array.isArray(statusData)) {
-            statusSessionsArray = statusData;
-          } else if (statusData.sessions && Array.isArray(statusData.sessions)) {
-            statusSessionsArray = statusData.sessions;
-          }
-          
-          const currentSession = sessionId 
-            ? statusSessionsArray.find((s: any) => s.id.toString() === sessionId)
-            : statusSessionsArray[0]; // Most recent
-          
-          if (currentSession && currentSession.status && currentSession.status.toLowerCase() === 'completed') {
-            console.log('[handleStop] Re-check confirmed session is completed');
-            toast({
-              title: "Process Completed",
-              description: "Process was already completed",
-            });
-            setTimeout(() => {
-              onStop();
-            }, 100);
-            return;
-          }
-        } catch (e) {
-          console.error('[handleStop] Failed to re-check status:', e);
-        }
+      } else {
+        toast({
+          title: "Process Stopped",
+          description: "Process terminated by operator",
+          variant: "destructive"
+        });
       }
     } catch (e) {
       console.error('Failed to stop via API:', e);
+      toast({
+        title: "Error",
+        description: "Failed to stop process",
+        variant: "destructive"
+      });
     }
-
-    // Show stopped message only if we actually stopped it
-    toast({
-      title: "Process Stopped",
-      description: "Process terminated by operator",
-      variant: "destructive"
-    });
 
     // Call parent handler to go back
     onStop();

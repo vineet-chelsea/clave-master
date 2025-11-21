@@ -750,28 +750,18 @@ class SensorControlService:
             pass
     
     def start_control_session(self, target_pressure, duration_minutes, program_name="Manual Control", steps_data=None, existing_session_id=None):
-        """Start a new control session"""
+        """Start a new control session - ALWAYS stops old control when starting new"""
         if not self.conn:
             print("[ERROR] Database not connected")
             return False
         
-        # Check if control is already active - prevent duplicate control loops
+        # CRITICAL: Always stop old control when starting a new process
+        # This ensures old processes are properly stopped when new ones start
         if self.control_active:
-            # Check if it's for the same session
-            if self.session_id:
-                cursor = self.conn.cursor()
-                cursor.execute(
-                    "SELECT id FROM process_sessions WHERE id=%s AND status='running'",
-                    (self.session_id,)
-                )
-                result = cursor.fetchone()
-                cursor.close()
-                if result:
-                    print(f"[INFO] Control already active for session {self.session_id}, skipping duplicate start")
-                    return True
-            else:
-                print("[INFO] Control already active but no session ID, stopping old control first")
-                self.stop_control_session()
+            print(f"[STOP] Stopping old control session (session_id: {self.session_id}) before starting new one")
+            self.stop_control_session()
+            # Wait a moment for the control loop to exit
+            time.sleep(0.5)
         
         try:
             # Convert to proper types
@@ -966,17 +956,89 @@ class SensorControlService:
                 else:
                     print(f"[CONTROL] Loop running - iteration {loop_iteration} (no end_time)")
             
-            # ===== COMPLETION CHECKS (MUST RUN FIRST, BEFORE ANY TRY BLOCK) =====
-            # These checks run independently of RS485 errors
+            # ===== STATUS CHECK (MUST RUN FIRST - Outside try-except) =====
+            # Check if session was stopped externally - this must run before anything else
+            if self.conn and self.session_id:
+                try:
+                    cursor = self.conn.cursor()
+                    cursor.execute(
+                        "SELECT status FROM process_sessions WHERE id=%s",
+                        (self.session_id,)
+                    )
+                    row = cursor.fetchone()
+                    cursor.close()
+                    
+                    if row and row[0] in ('stopped', 'completed'):
+                        print(f"[CONTROL] Session status changed to: {row[0]}")
+                        print("[CONTROL] Session finished, stopping control and closing valve")
+                        self.control_active = False
+                        # Reset valve to closed position
+                        success = self.set_valve_position(0)
+                        if success:
+                            print(f"[SAFETY] Valve closed to 0/4000")
+                        break
+                    elif not row or row[0] not in ('running', 'paused'):
+                        # Session not found or in unexpected state
+                        no_active_session_count += 1
+                        if no_active_session_count > 300:  # 5 minutes (300 seconds)
+                            print("[SAFETY] No active session for 5 minutes, stopping control")
+                            self.control_active = False
+                            self.set_valve_position(0)
+                            break
+                    elif row and row[0] == 'paused':
+                        no_active_session_count = 0  # Reset counter
+                        # Mark step as paused (if multi-step program)
+                        if self.program_steps and self.current_step_index < len(self.program_steps):
+                            if self.paused_time is None:
+                                print("[CONTROL] Paused - tracking pause time for current step")
+                                self.mark_paused()
+                        else:
+                            print("[CONTROL] Paused")
+                        
+                        # Wait while paused
+                        while self.control_active:
+                            cursor = self.conn.cursor()
+                            cursor.execute(
+                                "SELECT status FROM process_sessions WHERE id=%s",
+                                (self.session_id,)
+                            )
+                            status = cursor.fetchone()[0]
+                            cursor.close()
+                            if status == 'running':
+                                print("[CONTROL] Resumed")
+                                # Mark as resumed (if multi-step program)
+                                if self.program_steps and self.current_step_index < len(self.program_steps):
+                                    self.mark_resumed()
+                                    print(f"[CONTROL] Resumed - continuing from step {self.current_step_index + 1}/{len(self.program_steps)}")
+                                break
+                            elif status in ('stopped', 'completed'):
+                                self.control_active = False
+                                return
+                            time.sleep(1)
+                except Exception as e:
+                    # Continue if database check fails - don't let DB errors stop the loop
+                    pass
             
-            # 1. Check if total time has elapsed (for manual or total duration)
+            # ===== STEP COMPLETION CHECK (Sequential execution - Outside try-except) =====
+            # Steps must complete sequentially - check BEFORE total time check
+            if self.program_steps and self.current_step_index < len(self.program_steps):
+                if self.check_step_completion():
+                    print(f"[STEP] Step {self.current_step_index + 1}/{len(self.program_steps)} completed, advancing to next step")
+                    self.advance_to_next_step()
+                    # After advancing, check if all steps are done (advance_to_next_step calls complete_session if done)
+                    # If all steps complete, advance_to_next_step will call complete_session() and we'll break
+                    time.sleep(1)
+                    continue  # Continue to next iteration to check new step
+            
+            # ===== TOTAL TIME COMPLETION CHECK (Outside try-except) =====
+            # Check if total time has elapsed (for manual or total duration)
             if self.end_time:
                 current_time = get_ist_now().timestamp()
                 time_remaining = self.end_time - current_time
                 
-                # Debug logging every 10 seconds
+                # Debug logging every 10 seconds when close to completion
                 if not hasattr(self, '_last_completion_log') or (time.time() - self._last_completion_log) >= 10:
-                    print(f"[CONTROL] Session {self.session_id} - remaining: {time_remaining:.1f}s ({time_remaining/60:.2f} min)")
+                    print(f"[CONTROL] Session {self.session_id} - end_time: {self.end_time}, current: {current_time}, remaining: {time_remaining:.1f}s ({time_remaining/60:.2f} min)")
                     self._last_completion_log = time.time()
                 
                 if current_time >= self.end_time:
@@ -989,84 +1051,13 @@ class SensorControlService:
                     print(f"[WARNING] Session {self.session_id} has no end_time set!")
                     self._no_end_time_warning = True
             
-            # 2. Check for step completion (multi-step programs) - works without RS485
-            if self.program_steps and self.current_step_index < len(self.program_steps):
-                if self.check_step_completion():
-                    print(f"[STEP] Step {self.current_step_index + 1} completed, advancing to next step")
-                    self.advance_to_next_step()
-                    # After advancing, check if all steps are done (advance_to_next_step calls complete_session if done)
-                    time.sleep(1)
-                    continue
-            
-            # 3. Update remaining time (works without RS485)
+            # Update remaining time
             if self.end_time:
                 remaining_seconds = self.end_time - get_ist_now().timestamp()
                 self.remaining_minutes = max(0, int(remaining_seconds / 60) + 1)
             
-            # ===== NOW DO SENSOR READING AND CONTROL (Inside try-except) =====
+            # ===== NOW DO SENSOR READING AND CONTROL (Inside try-except for RS485 errors) =====
             try:
-                # Check if session is still active in database
-                if self.conn and self.session_id:
-                    try:
-                        cursor = self.conn.cursor()
-                        cursor.execute(
-                            "SELECT status FROM process_sessions WHERE id=%s",
-                            (self.session_id,)
-                        )
-                        row = cursor.fetchone()
-                        cursor.close()
-                        
-                        if row and row[0] in ('stopped', 'completed'):
-                            print(f"[CONTROL] Session status changed to: {row[0]}")
-                            if row[0] == 'stopped' or row[0] == 'completed':
-                                print("[CONTROL] Session finished, stopping control and closing valve")
-                                self.control_active = False
-                                # Reset valve to closed position
-                                success = self.set_valve_position(0)
-                                if success:
-                                    print(f"[SAFETY] Valve closed to 0/4000")
-                                break
-                        elif not row or row[0] not in ('running', 'paused'):
-                            # Session not found or in unexpected state
-                            no_active_session_count += 1
-                            if no_active_session_count > 300:  # 5 minutes (300 seconds)
-                                print("[SAFETY] No active session for 5 minutes, stopping control")
-                                self.control_active = False
-                                self.set_valve_position(0)
-                                break
-                        elif row and row[0] == 'paused':
-                            no_active_session_count = 0  # Reset counter
-                            # Mark step as paused (if multi-step program)
-                            if self.program_steps and self.current_step_index < len(self.program_steps):
-                                if self.paused_time is None:
-                                    print("[CONTROL] Paused - tracking pause time for current step")
-                                    self.mark_paused()
-                            else:
-                                print("[CONTROL] Paused")
-                            
-                            # Wait while paused
-                            while self.control_active:
-                                cursor = self.conn.cursor()
-                                cursor.execute(
-                                    "SELECT status FROM process_sessions WHERE id=%s",
-                                    (self.session_id,)
-                                )
-                                status = cursor.fetchone()[0]
-                                cursor.close()
-                                if status == 'running':
-                                    print("[CONTROL] Resumed")
-                                    # Mark as resumed (if multi-step program)
-                                    if self.program_steps and self.current_step_index < len(self.program_steps):
-                                        self.mark_resumed()
-                                        print(f"[CONTROL] Resumed - continuing from step {self.current_step_index + 1}/{len(self.program_steps)}")
-                                    break
-                                elif status == 'stopped':
-                                    self.control_active = False
-                                    return
-                                time.sleep(1)
-                    except Exception as e:
-                        pass  # Continue if database check fails
-                
                 # ===== SENSOR READING (RS485 dependent) =====
                 pressure = self.read_pressure()
                 temperature = self.read_temperature()
