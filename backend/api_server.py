@@ -820,10 +820,17 @@ def stop_control():
             })
         
         # Fallback: Update most recent running or paused session
-        cursor.execute(
-            "UPDATE process_sessions SET status='stopped', end_time=%s WHERE status IN ('running', 'paused') ORDER BY id DESC LIMIT 1",
-            (get_ist_now(),)
-        )
+        # Use subquery to get the most recent session ID first, then update it
+        cursor.execute("""
+            UPDATE process_sessions 
+            SET status='stopped', end_time=%s 
+            WHERE id = (
+                SELECT id FROM process_sessions 
+                WHERE status IN ('running', 'paused') 
+                ORDER BY id DESC 
+                LIMIT 1
+            )
+        """, (get_ist_now(),))
         rows_affected = cursor.rowcount
         conn.commit()
         cursor.close()
