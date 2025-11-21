@@ -873,7 +873,7 @@ class SensorControlService:
             print(f"[SESSION] Session will complete at: {end_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
             
             # Start control thread only if not already running
-            if not hasattr(self, 'control_thread') or not self.control_thread.is_alive():
+            if not hasattr(self, 'control_thread') or self.control_thread is None or not self.control_thread.is_alive():
                 self.control_thread = threading.Thread(target=self.control_loop, daemon=True)
                 self.control_thread.start()
                 print(f"     Control thread started")
@@ -881,7 +881,7 @@ class SensorControlService:
                 print(f"     Control thread already running")
             
             # Start buzzer control thread only if not already running
-            if not hasattr(self, 'buzzer_thread') or not self.buzzer_thread.is_alive():
+            if not hasattr(self, 'buzzer_thread') or self.buzzer_thread is None or not self.buzzer_thread.is_alive():
                 self.buzzer_stop_event.clear()
                 self.buzzer_thread = threading.Thread(target=self.buzzer_control_loop, daemon=True)
                 self.buzzer_thread.start()

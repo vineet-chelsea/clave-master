@@ -727,14 +727,18 @@ def start_control():
         cursor = conn.cursor()
         
         # CRITICAL: Stop all old running/paused sessions before starting new one
+        # Commit this immediately so sensor service detects the status change
         cursor.execute("""
             UPDATE process_sessions 
             SET status='stopped', end_time=%s 
             WHERE status IN ('running', 'paused')
         """, (get_ist_now(),))
         old_sessions_stopped = cursor.rowcount
+        conn.commit()  # Commit immediately so old sessions are stopped before creating new one
         if old_sessions_stopped > 0:
             print(f"[API] Stopped {old_sessions_stopped} old running/paused session(s) before starting new manual control")
+            import time
+            time.sleep(0.5)  # Give sensor service time to detect status change
         
         # Store control parameters in session metadata
         cursor.execute(
@@ -743,7 +747,7 @@ def start_control():
         )
         print(f"[API] Created session with target={target_pressure}, duration={duration_minutes}")
         session_id = cursor.fetchone()[0]
-        conn.commit()
+        conn.commit()  # Commit the new session
         cursor.close()
         conn.close()
         
@@ -1128,14 +1132,18 @@ def start_auto_program():
         
         # CRITICAL: Stop all old running/paused sessions before starting new one
         # This ensures only one process runs at a time
+        # Commit this immediately so sensor service detects the status change
         cursor.execute("""
             UPDATE process_sessions 
             SET status='stopped', end_time=%s 
             WHERE status IN ('running', 'paused')
         """, (get_ist_now(),))
         old_sessions_stopped = cursor.rowcount
+        conn.commit()  # Commit immediately so old sessions are stopped before creating new one
         if old_sessions_stopped > 0:
             print(f"[API] Stopped {old_sessions_stopped} old running/paused session(s) before starting new process")
+            import time
+            time.sleep(0.5)  # Give sensor service time to detect status change
         
         # Convert steps to JSON string for storage
         import json
@@ -1162,7 +1170,7 @@ def start_auto_program():
         ))
         
         session_id = cursor.fetchone()[0]
-        conn.commit()
+        conn.commit()  # Commit the new session
         cursor.close()
         conn.close()
         
