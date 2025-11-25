@@ -182,7 +182,7 @@ def add_all_programs():
             'program_name': 'XNBR Roll Program',
             'description': 'Autoclave program for XNBR Roll',
             'base_steps': [
-                {'psi_range': '0-5', 'duration_minutes': 15, 'action': 'raise'},
+                {'psi_range': '5', 'duration_minutes': 15, 'action': 'raise'},
                 {'psi_range': '5-5', 'duration_minutes': 45, 'action': 'steady'},  # Steady at 10
                 {'psi_range': '15-15', 'duration_minutes': 15, 'action': 'raise'},  # Raise to 40-451
                 {'psi_range': '15-15', 'duration_minutes': 45, 'action': 'steady'},
@@ -206,15 +206,10 @@ def add_all_programs():
                 {'psi_range': '5', 'duration_minutes': 45, 'action': 'steady'},  # Steady at 5
                 {'psi_range': '15', 'duration_minutes': 15, 'action': 'raise'},  # Raise to 15
                 {'psi_range': '15', 'duration_minutes': 45, 'action': 'steady'},  # Steady at 15
-                {'psi_range': '40', 'duration_minutes': 15, 'action': 'raise'} # Raise to 40
+                {'psi_range': '40', 'duration_minutes': 15, 'action': 'raise'},
+                {'psi_range': '40-40', 'duration_minutes': 270, 'action': 'steady'}# Raise to 40
             ],
             'quantity_variations': {
-                '1-3': {
-                    'final_step': {'psi_range': '40-40', 'duration_minutes': 270, 'action': 'steady'}  # 2 Hrs. 30 Mins.
-                },
-                '4+': {
-                    'final_step': {'psi_range': '40-40', 'duration_minutes': 270, 'action': 'steady'}  # 3 Hrs.
-                }
             }
         },
         {
