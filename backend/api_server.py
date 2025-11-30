@@ -494,25 +494,49 @@ def generate_pdf_report(session_id):
         
         logo_exists = logo_path is not None
         
-        # Header table: Logo (left) and Title (right)
+        # Header table: Logo (left), Title (center), Date (right)
+        # Create date style
+        date_style = ParagraphStyle(
+            'DateStyle',
+            parent=styles['Normal'],
+            fontSize=10,
+            textColor=colors.HexColor('#333333'),
+            alignment=TA_LEFT,
+            fontName='Helvetica'
+        )
+        
+        # Format process start date
+        report_date = start_time.strftime('%d-%m-%Y') if start_time else get_ist_now().strftime('%d-%m-%Y')
+        
         header_data = []
         if logo_exists and logo_path:
             try:
                 logo_img = Image(logo_path, width=1.5*inch, height=0.75*inch)
-                header_data.append([logo_img, Paragraph("Hindustan Rubber Products - Autoclave Process Report", title_style)])
+                header_data.append([
+                    logo_img, 
+                    Paragraph("Hindustan Rubber Products - Autoclave Process Report", title_style),
+                    Paragraph(report_date, date_style)
+                ])
             except Exception as e:
                 print(f"Error loading logo: {e}")
-                header_data.append([Paragraph("HRP", ParagraphStyle('LogoText', parent=styles['Normal'], fontSize=18, textColor=colors.HexColor('#d32f2f'), fontName='Helvetica-Bold')), 
-                                  Paragraph("Hindustan Rubber Products - Autoclave Process Report", title_style)])
+                header_data.append([
+                    Paragraph("HRP", ParagraphStyle('LogoText', parent=styles['Normal'], fontSize=18, textColor=colors.HexColor('#d32f2f'), fontName='Helvetica-Bold')), 
+                    Paragraph("Hindustan Rubber Products - Autoclave Process Report", title_style),
+                    Paragraph(report_date, date_style)
+                ])
         else:
             # No logo file - create text logo
-            header_data.append([Paragraph("HRP", ParagraphStyle('LogoText', parent=styles['Normal'], fontSize=18, textColor=colors.HexColor('#d32f2f'), fontName='Helvetica-Bold')), 
-                              Paragraph("Hindustan Rubber Products - Autoclave Process Report", title_style)])
+            header_data.append([
+                Paragraph("HRP", ParagraphStyle('LogoText', parent=styles['Normal'], fontSize=18, textColor=colors.HexColor('#d32f2f'), fontName='Helvetica-Bold')), 
+                Paragraph("Hindustan Rubber Products - Autoclave Process Report", title_style),
+                Paragraph(report_date, date_style)
+            ])
         
-        header_table = Table(header_data, colWidths=[2*inch, 4.5*inch])
+        header_table = Table(header_data, colWidths=[2*inch, 3.5*inch, 2*inch])
         header_table.setStyle(TableStyle([
             ('ALIGN', (0, 0), (0, 0), 'LEFT'),
             ('ALIGN', (1, 0), (1, 0), 'CENTER'),
+            ('ALIGN', (2, 0), (2, 0), 'RIGHT'),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
             ('TOPPADDING', (0, 0), (-1, -1), 10)
