@@ -64,6 +64,7 @@ RUN pip install --no-cache-dir --prefer-binary --find-links /tmp/packages --no-i
 
 # Copy backend files
 COPY backend/*.py .
+COPY backend/./assets/
 COPY backend/start_backend.sh .
 RUN chmod +x start_backend.sh
 
