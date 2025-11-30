@@ -8,6 +8,7 @@ from flask_cors import CORS
 import psycopg2
 import os
 import io
+import json
 from datetime import datetime
 from dotenv import load_dotenv
 import pytz
@@ -395,10 +396,10 @@ def generate_pdf_report(session_id):
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # Get session details
+        # Get session details including steps_data
         cursor.execute("""
             SELECT id, program_name, status, start_time, end_time, target_pressure, duration_minutes,
-                   roll_category_name, sub_roll_name, roll_id, operator_name, number_of_rolls
+                   roll_category_name, sub_roll_name, roll_id, operator_name, number_of_rolls, steps_data
             FROM process_sessions 
             WHERE id=%s
         """, (session_id,))
@@ -408,7 +409,18 @@ def generate_pdf_report(session_id):
             return jsonify({'error': 'Session not found'}), 404
         
         session_id_db, program_name, status, start_time, end_time, target_pressure, duration_minutes, \
-        roll_category_name, sub_roll_name, roll_id, operator_name, number_of_rolls = session_row
+        roll_category_name, sub_roll_name, roll_id, operator_name, number_of_rolls, steps_data = session_row
+        
+        # Parse steps_data if it exists
+        program_steps = []
+        if steps_data:
+            if isinstance(steps_data, str):
+                try:
+                    program_steps = json.loads(steps_data)
+                except:
+                    program_steps = []
+            elif isinstance(steps_data, (list, dict)):
+                program_steps = steps_data if isinstance(steps_data, list) else [steps_data]
         
         # Get sensor readings for the session
         if end_time:
@@ -467,10 +479,36 @@ def generate_pdf_report(session_id):
             leading=13
         )
         
-        # PAGE 1: Title and Charts
-        # Title section
-        story.append(Paragraph("AUTOCLAVE PROCESS REPORT", title_style))
-        story.append(Spacer(1, 0.1*inch))
+        # PAGE 1: Header with Logo and Title
+        # Create a table for logo and title side by side
+        logo_path = os.path.join(os.path.dirname(__file__), 'assets', 'hrp_logo.png')
+        # Check if logo exists, otherwise create a placeholder
+        logo_exists = os.path.exists(logo_path)
+        
+        # Header table: Logo (left) and Title (right)
+        header_data = []
+        if logo_exists:
+            try:
+                logo_img = Image(logo_path, width=1.5*inch, height=0.75*inch)
+                header_data.append([logo_img, Paragraph("Hindustan Rubber Products - Autoclave Process Report", title_style)])
+            except:
+                header_data.append([Paragraph("HRP", ParagraphStyle('LogoText', parent=styles['Normal'], fontSize=18, textColor=colors.HexColor('#d32f2f'), fontName='Helvetica-Bold')), 
+                                  Paragraph("Hindustan Rubber Products - Autoclave Process Report", title_style)])
+        else:
+            # No logo file - create text logo
+            header_data.append([Paragraph("HRP", ParagraphStyle('LogoText', parent=styles['Normal'], fontSize=18, textColor=colors.HexColor('#d32f2f'), fontName='Helvetica-Bold')), 
+                              Paragraph("Hindustan Rubber Products - Autoclave Process Report", title_style)])
+        
+        header_table = Table(header_data, colWidths=[2*inch, 4.5*inch])
+        header_table.setStyle(TableStyle([
+            ('ALIGN', (0, 0), (0, 0), 'LEFT'),
+            ('ALIGN', (1, 0), (1, 0), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+            ('TOPPADDING', (0, 0), (-1, -1), 10)
+        ]))
+        story.append(header_table)
+        story.append(Spacer(1, 0.2*inch))
         
         # Session Information Table
         info_data = []
@@ -517,9 +555,6 @@ def generate_pdf_report(session_id):
         if duration_minutes:
             info_data.append(['Duration:', f'{duration_minutes} minutes'])
         
-        # Report generation timestamp
-        info_data.append(['Report Generated:', get_ist_now().strftime('%Y-%m-%d %H:%M:%S')])
-        
         # Create information table
         if info_data:
             info_table = Table(info_data, colWidths=[2.2*inch, 4.3*inch])
@@ -538,6 +573,39 @@ def generate_pdf_report(session_id):
                 ('VALIGN', (0, 0), (-1, -1), 'TOP')
             ]))
             story.append(info_table)
+        
+        story.append(Spacer(1, 0.15*inch))
+        
+        # Add Process Steps Table if available
+        if program_steps and len(program_steps) > 0:
+            story.append(Paragraph("Process Steps", heading_style))
+            story.append(Spacer(1, 0.1*inch))
+            
+            steps_table_data = [['Step', 'PSI Range', 'Duration (min)', 'Action']]
+            for idx, step in enumerate(program_steps, 1):
+                psi_range = step.get('psi_range', 'N/A')
+                duration = step.get('duration_minutes', 0)
+                action = step.get('action', 'N/A').title()
+                steps_table_data.append([str(idx), str(psi_range), str(duration), action])
+            
+            steps_table = Table(steps_table_data, colWidths=[0.8*inch, 1.5*inch, 1.5*inch, 1.2*inch])
+            steps_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 8),
+                ('FONTSIZE', (0, 1), (-1, -1), 7),
+                ('LEADING', (0, 0), (-1, -1), 8),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 6),
+                ('TOPPADDING', (0, 1), (-1, -1), 3),
+                ('BOTTOMPADDING', (0, 1), (-1, -1), 3),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.lightgrey])
+            ]))
+            story.append(steps_table)
+            story.append(Spacer(1, 0.15*inch))
         
         story.append(Spacer(1, 0.2*inch))
         
@@ -567,9 +635,9 @@ def generate_pdf_report(session_id):
         ax_pressure.set_yticks(pressure_ticks)
         ax_pressure.set_yticklabels([str(tick) for tick in pressure_ticks])  # Explicitly set labels to ensure correct display
         
-        # Format x-axis to show time range clearly
+        # Format x-axis to show time range clearly with 30-minute intervals
         ax_pressure.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
-        ax_pressure.xaxis.set_major_locator(mdates.AutoDateLocator(maxticks=8))
+        ax_pressure.xaxis.set_major_locator(mdates.MinuteLocator(interval=30))
         
         ax_pressure.set_xlabel('Time', fontsize=9)
         ax_pressure.set_ylabel('Pressure (PSI)', fontsize=9, color='#2563eb')
@@ -606,9 +674,9 @@ def generate_pdf_report(session_id):
         ax_temp.set_yticks(temp_ticks)
         ax_temp.set_yticklabels([str(tick) for tick in temp_ticks])  # Explicitly set labels to ensure correct display
         
-        # Format x-axis to show time range clearly
+        # Format x-axis to show time range clearly with 30-minute intervals
         ax_temp.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
-        ax_temp.xaxis.set_major_locator(mdates.AutoDateLocator(maxticks=8))
+        ax_temp.xaxis.set_major_locator(mdates.MinuteLocator(interval=30))
         
         ax_temp.set_xlabel('Time', fontsize=9)
         ax_temp.set_ylabel('Temperature (°C)', fontsize=9, color='#dc2626')
@@ -626,8 +694,9 @@ def generate_pdf_report(session_id):
         story.append(img_temp)
         plt.close(fig_temp)
         
-        # No page break - continue on same page (page 2)
-        story.append(Spacer(1, 0.2*inch))
+        # Page break - start page 2 with data table
+        story.append(PageBreak())
+        story.append(Spacer(1, 0.15*inch))
         
         # PAGE 2: Combined Data Table
         story.append(Paragraph("Sensor Readings Data", title_style))
@@ -670,7 +739,8 @@ def generate_pdf_report(session_id):
                     f"{float(temperature):.2f}"
                 ])
         
-        # Create combined table with 3 columns
+        # Create combined table optimized for compact display - all 72 records
+        # Smaller fonts and tighter spacing to fit all records on one page
         combined_table = Table(combined_data, colWidths=[2.5*inch, 1.8*inch, 1.8*inch])
         combined_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
@@ -678,14 +748,14 @@ def generate_pdf_report(session_id):
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
             ('ALIGN', (1, 1), (2, -1), 'CENTER'),  # Center align pressure and temperature values
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 9),
-            ('FONTSIZE', (0, 1), (-1, -1), 7),
-            ('LEADING', (0, 0), (-1, -1), 9),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
-            ('TOPPADDING', (0, 1), (-1, -1), 4),
-            ('BOTTOMPADDING', (0, 1), (-1, -1), 4),
+            ('FONTSIZE', (0, 0), (-1, 0), 7),  # Smaller header
+            ('FONTSIZE', (0, 1), (-1, -1), 6),  # Smaller data
+            ('LEADING', (0, 0), (-1, -1), 7),  # Tighter spacing
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 6),
+            ('TOPPADDING', (0, 1), (-1, -1), 2),  # Minimal padding
+            ('BOTTOMPADDING', (0, 1), (-1, -1), 2),  # Minimal padding
             ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.black),  # Thinner grid lines
             ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.lightgrey])
         ]))
         
