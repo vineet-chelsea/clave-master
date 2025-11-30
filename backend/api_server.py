@@ -704,8 +704,7 @@ def generate_pdf_report(session_id):
         story.append(img_temp)
         plt.close(fig_temp)
         
-        # Page break - start page 2 with data table
-        story.append(PageBreak())
+        # Continue on same page with data table
         story.append(Spacer(1, 0.15*inch))
         
         # PAGE 2: Combined Data Table
