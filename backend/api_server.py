@@ -446,15 +446,15 @@ def generate_pdf_report(session_id):
         if not readings:
             return jsonify({'error': 'No sensor readings found for this session'}), 404
         
-        # Create PDF in memory - A4 size for printing
+        # Create PDF in memory - A4 size for printing with reduced margins
         buffer = io.BytesIO()
         doc = SimpleDocTemplate(
             buffer, 
             pagesize=A4, 
-            topMargin=0.75*inch, 
-            bottomMargin=0.75*inch,
-            leftMargin=0.75*inch,
-            rightMargin=0.75*inch
+            topMargin=0.5*inch, 
+            bottomMargin=0.5*inch,
+            leftMargin=0.5*inch,
+            rightMargin=0.5*inch
         )
         story = []
         styles = getSampleStyleSheet()
@@ -480,18 +480,28 @@ def generate_pdf_report(session_id):
         )
         
         # PAGE 1: Header with Logo and Title
+         # PAGE 1: Header with Logo and Title
         # Create a table for logo and title side by side
-        logo_path = os.path.join(os.path.dirname(__file__), 'assets', 'hrp_logo.png')
-        # Check if logo exists, otherwise create a placeholder
-        logo_exists = os.path.exists(logo_path)
+        assets_dir = os.path.join(os.path.dirname(__file__), 'assets')
+        
+        # Check for logo in both PNG and JPG formats
+        logo_path = None
+        for ext in ['.jpg', '.jpeg', '.png']:
+            potential_path = os.path.join(assets_dir, f'hrp_logo{ext}')
+            if os.path.exists(potential_path):
+                logo_path = potential_path
+                break
+        
+        logo_exists = logo_path is not None
         
         # Header table: Logo (left) and Title (right)
         header_data = []
-        if logo_exists:
+        if logo_exists and logo_path:
             try:
                 logo_img = Image(logo_path, width=1.5*inch, height=0.75*inch)
                 header_data.append([logo_img, Paragraph("Hindustan Rubber Products - Autoclave Process Report", title_style)])
-            except:
+            except Exception as e:
+                print(f"Error loading logo: {e}")
                 header_data.append([Paragraph("HRP", ParagraphStyle('LogoText', parent=styles['Normal'], fontSize=18, textColor=colors.HexColor('#d32f2f'), fontName='Helvetica-Bold')), 
                                   Paragraph("Hindustan Rubber Products - Autoclave Process Report", title_style)])
         else:
@@ -726,41 +736,84 @@ def generate_pdf_report(session_id):
                 sampled_indices[-1] = len(readings) - 1
             sampled_indices = sorted(list(set(sampled_indices)))[:max_records]
         
-        # Combined table with Timestamp, Pressure, and Temperature
-        combined_data = [['Timestamp', 'Pressure (PSI)', 'Temperature (°C)']]
-        for idx in sampled_indices:
+        # Prepare data for side-by-side tables - split 72 records into two columns
+        # Create left table data (first 36 records)
+        left_table_data = [['Timestamp', 'PSI', '°C']]
+        # Create right table data (last 36 records)
+        right_table_data = [['Timestamp', 'PSI', '°C']]
+        
+        # Split records into two halves
+        mid_point = len(sampled_indices) // 2
+        for i, idx in enumerate(sampled_indices):
             if idx < len(readings):
                 ts = readings[idx][0]
                 pressure = readings[idx][1]
                 temperature = readings[idx][2]
-                combined_data.append([
+                row_data = [
                     ts.strftime('%Y-%m-%d %H:%M:%S') if isinstance(ts, datetime) else str(ts),
                     f"{float(pressure):.2f}",
                     f"{float(temperature):.2f}"
-                ])
+                ]
+                
+                if i < mid_point:
+                    left_table_data.append(row_data)
+                else:
+                    right_table_data.append(row_data)
         
-        # Create combined table optimized for compact display - all 72 records
-        # Smaller fonts and tighter spacing to fit all records on one page
-        combined_table = Table(combined_data, colWidths=[2.5*inch, 1.8*inch, 1.8*inch])
-        combined_table.setStyle(TableStyle([
+        # Calculate available width with reduced margins (A4 width - 2*0.5 inch margins)
+        available_width = 8.27*inch - 1.0*inch  # A4 width minus left and right margins
+        table_width = available_width / 2 - 0.1*inch  # Half width minus gap between tables
+        
+        # Create left table with reduced column widths
+        left_table = Table(left_table_data, colWidths=[1.6*inch, 0.8*inch, 0.8*inch])
+        left_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('ALIGN', (1, 1), (2, -1), 'CENTER'),  # Center align pressure and temperature values
+            ('ALIGN', (1, 1), (2, -1), 'CENTER'),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 7),  # Smaller header
-            ('FONTSIZE', (0, 1), (-1, -1), 6),  # Smaller data
-            ('LEADING', (0, 0), (-1, -1), 7),  # Tighter spacing
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 6),
-            ('TOPPADDING', (0, 1), (-1, -1), 2),  # Minimal padding
-            ('BOTTOMPADDING', (0, 1), (-1, -1), 2),  # Minimal padding
+            ('FONTSIZE', (0, 0), (-1, 0), 7),
+            ('FONTSIZE', (0, 1), (-1, -1), 6),
+            ('LEADING', (0, 0), (-1, -1), 7),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 5),
+            ('TOPPADDING', (0, 1), (-1, -1), 2),
+            ('BOTTOMPADDING', (0, 1), (-1, -1), 2),
             ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.black),  # Thinner grid lines
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
             ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.lightgrey])
         ]))
         
+        # Create right table with reduced column widths
+        right_table = Table(right_table_data, colWidths=[1.6*inch, 0.8*inch, 0.8*inch])
+        right_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('ALIGN', (1, 1), (2, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 7),
+            ('FONTSIZE', (0, 1), (-1, -1), 6),
+            ('LEADING', (0, 0), (-1, -1), 7),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 5),
+            ('TOPPADDING', (0, 1), (-1, -1), 2),
+            ('BOTTOMPADDING', (0, 1), (-1, -1), 2),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.lightgrey])
+        ]))
+        
+        # Create side-by-side table container
+        side_by_side_data = [[left_table, right_table]]
+        side_by_side_table = Table(side_by_side_data, colWidths=[table_width, table_width])
+        side_by_side_table.setStyle(TableStyle([
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('LEFTPADDING', (0, 0), (0, 0), 0),
+            ('RIGHTPADDING', (1, 0), (1, 0), 0),
+            ('LEFTPADDING', (1, 0), (1, 0), 0.1*inch),  # Gap between tables
+        ]))
+        
         story.append(Paragraph("Sensor Readings (72 equally spaced values)", heading_style))
-        story.append(combined_table)
+        story.append(side_by_side_table)
         
         # Build PDF
         doc.build(story)
