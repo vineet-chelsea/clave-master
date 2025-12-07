@@ -709,8 +709,8 @@ def generate_pdf_report(session_id):
         ax_temp.set_yticklabels([str(tick) for tick in temp_ticks])  # Explicitly set labels to ensure correct display
         
         # Format x-axis to show time range clearly with 30-minute intervals
-		ax_pressure.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
-		ax_pressure.xaxis.set_major_locator(mdates.MinuteLocator(byminute=[0, 30]))
+        ax_temp.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+        ax_temp.xaxis.set_major_locator(mdates.MinuteLocator(byminute=[0, 30]))
         
         ax_temp.set_xlabel('Time', fontsize=9)
         ax_temp.set_ylabel('Temperature (°C)', fontsize=9, color='#dc2626')
