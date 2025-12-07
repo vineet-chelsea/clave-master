@@ -171,7 +171,7 @@ def init_database():
             "TCIL ECL Roll",
             "PLTCM Tension Lever Roll",
             "XNBR Roll",
-            "Pickling-2 (Solid Roll)",
+            "Pickling Line (Solid Roll)",
             "Hypalon Roll",
             "Sink Roll 1000 dia. Roll",
             "Deflector Roll 1000 dia. Roll",
