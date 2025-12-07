@@ -60,8 +60,8 @@ def add_all_programs():
                 {'psi_range': '5-10', 'duration_minutes': 45, 'action': 'steady'},
                 {'psi_range': '10-20', 'duration_minutes': 15, 'action': 'raise'},
                 {'psi_range': '20-30', 'duration_minutes': 15, 'action': 'raise'},
-                {'psi_range': '30-40', 'duration_minutes': 15, 'action': 'raise'}
-           #     {'psi_range': '40-45', 'duration_minutes': 150, 'action': 'steady'}  # 2 Hrs. 30 Mins.
+                {'psi_range': '30-40', 'duration_minutes': 15, 'action': 'raise'},
+                {'psi_range': '40-45', 'duration_minutes': 150, 'action': 'steady'}  # 2 Hrs. 30 Mins.
             ],
             'quantity_variations': {
                 '1-3': {
@@ -81,8 +81,8 @@ def add_all_programs():
                 {'psi_range': '5-10', 'duration_minutes': 45, 'action': 'steady'},
                 {'psi_range': '10-20', 'duration_minutes': 15, 'action': 'raise'},
                 {'psi_range': '20-30', 'duration_minutes': 15, 'action': 'raise'},
-                {'psi_range': '30-40', 'duration_minutes': 15, 'action': 'raise'}
-  #              {'psi_range': '40-45', 'duration_minutes': 150, 'action': 'steady'}  # 2 Hrs. 30 Mins.
+                {'psi_range': '30-40', 'duration_minutes': 15, 'action': 'raise'},
+                {'psi_range': '40-45', 'duration_minutes': 150, 'action': 'steady'}  # 2 Hrs. 30 Mins.
             ],
             'quantity_variations': {
                 '1-3': {
@@ -102,8 +102,8 @@ def add_all_programs():
                 {'psi_range': '5-10', 'duration_minutes': 45, 'action': 'steady'},
                 {'psi_range': '10-20', 'duration_minutes': 15, 'action': 'raise'},
                 {'psi_range': '20-30', 'duration_minutes': 15, 'action': 'raise'},
-                {'psi_range': '30-40', 'duration_minutes': 15, 'action': 'raise'}
-      #          {'psi_range': '40-45', 'duration_minutes': 150, 'action': 'steady'}  # 2 Hrs. 30 Mins.
+                {'psi_range': '30-40', 'duration_minutes': 15, 'action': 'raise'},
+                {'psi_range': '40-45', 'duration_minutes': 150, 'action': 'steady'}  # 2 Hrs. 30 Mins.
             ],
             'quantity_variations': {
                 '1-3': {
@@ -123,8 +123,8 @@ def add_all_programs():
                 {'psi_range': '5-10', 'duration_minutes': 45, 'action': 'steady'},
                 {'psi_range': '10-20', 'duration_minutes': 15, 'action': 'raise'},
                 {'psi_range': '20-30', 'duration_minutes': 15, 'action': 'raise'},
-                {'psi_range': '30-40', 'duration_minutes': 15, 'action': 'raise'}
-               # {'psi_range': '40-45', 'duration_minutes': 150, 'action': 'steady'}  # 2 Hrs. 30 Mins.
+                {'psi_range': '30-40', 'duration_minutes': 15, 'action': 'raise'},
+                {'psi_range': '40-45', 'duration_minutes': 150, 'action': 'steady'}  # 2 Hrs. 30 Mins.
             ],
             'quantity_variations': {
                 '1-3': {
@@ -144,8 +144,8 @@ def add_all_programs():
                 {'psi_range': '5-10', 'duration_minutes': 45, 'action': 'steady'},
                 {'psi_range': '10-20', 'duration_minutes': 15, 'action': 'raise'},
                 {'psi_range': '20-30', 'duration_minutes': 15, 'action': 'raise'},
-                {'psi_range': '30-40', 'duration_minutes': 15, 'action': 'raise'}
-       #         {'psi_range': '40-45', 'duration_minutes': 150, 'action': 'steady'}  # 2 Hrs. 30 Mins.
+                {'psi_range': '30-40', 'duration_minutes': 15, 'action': 'raise'},
+                {'psi_range': '40-45', 'duration_minutes': 150, 'action': 'steady'}  # 2 Hrs. 30 Mins.
             ],
             'quantity_variations': {
                 '1-3': {
@@ -165,8 +165,8 @@ def add_all_programs():
                 {'psi_range': '5-10', 'duration_minutes': 45, 'action': 'steady'},
                 {'psi_range': '10-20', 'duration_minutes': 15, 'action': 'raise'},
                 {'psi_range': '20-30', 'duration_minutes': 15, 'action': 'raise'},
-                {'psi_range': '30-40', 'duration_minutes': 15, 'action': 'raise'}
-             #   {'psi_range': '40-45', 'duration_minutes': 150, 'action': 'steady'}  # 2 Hrs. 30 Mins.
+                {'psi_range': '30-40', 'duration_minutes': 15, 'action': 'raise'},
+                {'psi_range': '40-45', 'duration_minutes': 150, 'action': 'steady'}  # 2 Hrs. 30 Mins.
             ],
             'quantity_variations': {
                 '1-3': {
@@ -198,7 +198,7 @@ def add_all_programs():
             }
         },
         {
-            'roll_category_name': 'Pickling Line (Solid Roll)',
+            'roll_category_name': 'Pickling-2 (Solid Roll)',
             'program_name': 'Pickling-2 (Solid Roll) Program',
             'description': 'Autoclave program for Pickling-2 (Solid Roll)',
             'base_steps': [
@@ -207,10 +207,9 @@ def add_all_programs():
                 {'psi_range': '15', 'duration_minutes': 15, 'action': 'raise'},  # Raise to 15
                 {'psi_range': '15', 'duration_minutes': 45, 'action': 'steady'},  # Steady at 15
                 {'psi_range': '40', 'duration_minutes': 15, 'action': 'raise'},
-                {'psi_range': '40-40', 'duration_minutes': 270, 'action': 'steady'}# Raise to 40
+                {'psi_range': '40', 'duration_minutes': 270, 'action': 'steady'}# Raise to 40
             ],
-            'quantity_variations': {
-            }
+            'quantity_variations': {}
         },
         {
             'roll_category_name': 'Hypalon Roll',
@@ -550,13 +549,13 @@ def add_all_programs():
     print("-" * 60)
     qty_programs = [p for p in programs if p.get('quantity_variations')]
     for p in qty_programs:
-        print(f"  ? {p['roll_category_name']}")
+        print(f"  • {p['roll_category_name']}")
         print(f"    - 1-3 rolls: Final step at {p['quantity_variations']['1-3']['final_step']['psi_range']} PSI for {p['quantity_variations']['1-3']['final_step']['duration_minutes']} min")
         print(f"    - 4+ rolls:  Final step at {p['quantity_variations']['4+']['final_step']['psi_range']} PSI for {p['quantity_variations']['4+']['final_step']['duration_minutes']} min")
     print(f"\nTotal programs with quantity variations: {len(qty_programs)}")
     print(f"Total programs without quantity variations: {len(programs) - len(qty_programs)}")
 
-if __name__ == "__mfain__":
+if __name__ == "__main__":
     print("\n" + "="*60)
     print("REVIEW: All 25 Roll Programs")
     print("="*60)
