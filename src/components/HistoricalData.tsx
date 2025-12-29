@@ -21,6 +21,7 @@ const IST_TIMEZONE = 'Asia/Kolkata';
 // Module-level export lock - persists across all component instances and re-renders
 let globalExportLock = false;
 let exportLockTimeout: NodeJS.Timeout | null = null;
+let downloadCounter = 0; // Track how many downloads have been initiated
 
 // Helper function to format date in IST
 const formatIST = (date: string | Date | null | undefined, formatStr: string) => {
@@ -207,11 +208,13 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
   const exportToExcel = () => {
     // CRITICAL: Check module-level lock FIRST (most important check)
     if (globalExportLock) {
+      console.warn('[EXPORT] Blocked by global lock');
       return; // Exit immediately - global lock is active
     }
 
     // Check ref (component-level check)
     if (isExportingRef.current) {
+      console.warn('[EXPORT] Blocked by ref lock');
       return;
     }
 
@@ -229,10 +232,17 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
     globalExportLock = true; // Module-level lock
     isExportingRef.current = true; // Component-level ref
     setExportingExcel(true); // Component-level state
+    downloadCounter++; // Increment counter
 
     // Clear any existing timeout
     if (exportLockTimeout) {
       clearTimeout(exportLockTimeout);
+    }
+
+    // CRITICAL: Double-check lock before proceeding
+    if (!globalExportLock || !isExportingRef.current) {
+      console.error('[EXPORT] Lock was reset before execution - this should not happen!');
+      return;
     }
 
     try {
@@ -278,8 +288,24 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
       const timestamp = format(new Date(), 'yyyyMMdd_HHmmss_SSS');
       const filename = `Process_${sessionName.replace(/\s+/g, '_')}_${timestamp}.xlsx`;
 
+      // CRITICAL: Final check RIGHT BEFORE file write
+      if (!globalExportLock) {
+        console.error('[EXPORT] Global lock was reset before file write - ABORTING');
+        return;
+      }
+
+      // CRITICAL: Only allow ONE download per lock cycle
+      if (downloadCounter > 1) {
+        console.error(`[EXPORT] Multiple download attempts detected (${downloadCounter}) - ABORTING`);
+        return;
+      }
+
+      console.log(`[EXPORT] Writing file: ${filename} (Attempt #${downloadCounter})`);
+
       // Write file - ONLY ONCE
       XLSX.writeFile(wb, filename);
+
+      console.log('[EXPORT] File written successfully');
 
       // Show toast
       toast({
@@ -299,8 +325,10 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
         globalExportLock = false;
         isExportingRef.current = false;
         setExportingExcel(false);
+        downloadCounter = 0; // Reset counter
         exportLockTimeout = null;
-      }, 10000); // 10 second delay - very conservative
+        console.log('[EXPORT] All locks released, counter reset');
+      }, 15000); // 15 second delay - very conservative
     }
   };
 
@@ -541,10 +569,22 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
+                  
                   // Critical: Check global lock FIRST
                   if (globalExportLock || isExportingRef.current || exportingExcel) {
+                    console.warn('[BUTTON] Click blocked - lock active');
                     return; // Exit immediately if any lock is active
                   }
+                  
+                  // Additional safety: Small delay to prevent rapid clicks
+                  const now = Date.now();
+                  const lastClick = (window as any).lastExcelClick || 0;
+                  if (now - lastClick < 100) {
+                    console.warn('[BUTTON] Click too rapid - blocked');
+                    return;
+                  }
+                  (window as any).lastExcelClick = now;
+                  
                   exportToExcel();
                 }}
                 disabled={exportingExcel || isExportingRef.current || globalExportLock}
