@@ -61,7 +61,7 @@ def add_all_programs():
                 {'psi_range': '10-20', 'duration_minutes': 15, 'action': 'raise'},
                 {'psi_range': '20-30', 'duration_minutes': 15, 'action': 'raise'},
                 {'psi_range': '30-40', 'duration_minutes': 15, 'action': 'raise'}
-           #     {'psi_range': '40-45', 'duration_minutes': 150, 'action': 'steady'}  # 2 Hrs. 30 Mins.
+           #     {'psi_range': '40-45', 'duration_minutes': 150, 'action': 'steady'}   2 Hrs. 30 Mins.
             ],
             'quantity_variations': {
                 '1-3': {
@@ -182,19 +182,13 @@ def add_all_programs():
             'program_name': 'XNBR Roll Program',
             'description': 'Autoclave program for XNBR Roll',
             'base_steps': [
-                {'psi_range': '5', 'duration_minutes': 15, 'action': 'raise'},
-                {'psi_range': '5-5', 'duration_minutes': 45, 'action': 'steady'},  # Steady at 10
-                {'psi_range': '15-15', 'duration_minutes': 15, 'action': 'raise'},  # Raise to 40-451
-                {'psi_range': '15-15', 'duration_minutes': 45, 'action': 'steady'},
-                 {'psi_range': '40-40', 'duration_minutes': 15, 'action': 'raise'} # Steady at 40-45, 6 Hrs.
+                {'psi_range': '5-10', 'duration_minutes': 15, 'action': 'raise'},
+                {'psi_range': '10', 'duration_minutes': 20, 'action': 'steady'},  # Raise to 40-451
+                {'psi_range': '40-45', 'duration_minutes': 30, 'action': 'raise'},
+                 {'psi_range': '40-45', 'duration_minutes': 180, 'action': 'raise'} # Steady at 40-45, 6 Hrs.
             ],
             'quantity_variations': {
-                '1-3': {
-                    'final_step': {'psi_range': '40-40', 'duration_minutes': 270, 'action': 'steady'}  # 2 Hrs. 30 Mins.
-                },
-                '4+': {
-                    'final_step': {'psi_range': '40-40', 'duration_minutes': 270, 'action': 'steady'}  # 3 Hrs.
-                }
+              
             }
         },
         {
@@ -556,7 +550,7 @@ def add_all_programs():
     print(f"\nTotal programs with quantity variations: {len(qty_programs)}")
     print(f"Total programs without quantity variations: {len(programs) - len(qty_programs)}")
 
-if __name__ == "__mfain__":
+if __name__ == "__main__":
     print("\n" + "="*60)
     print("REVIEW: All 25 Roll Programs")
     print("="*60)
