@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -67,6 +67,7 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
   const { toast } = useToast();
   const pressureChartRef = useRef<HTMLDivElement>(null);
   const temperatureChartRef = useRef<HTMLDivElement>(null);
+  const isExportingRef = useRef(false); // Use ref for immediate synchronous check
 
   useEffect(() => {
     fetchSessions(currentPage);
@@ -198,9 +199,18 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
     }
   };
 
-  const exportToExcel = () => {
-    // Prevent multiple clicks
+  const exportToExcel = useCallback(() => {
+    // Multiple safeguards to prevent infinite downloads
+    
+    // Guard 1: Check ref (immediate, synchronous)
+    if (isExportingRef.current) {
+      console.log('[EXPORT] Blocked: Already exporting (ref check)');
+      return;
+    }
+
+    // Guard 2: Check state (additional safety)
     if (exportingExcel) {
+      console.log('[EXPORT] Blocked: Already exporting (state check)');
       return;
     }
 
@@ -213,67 +223,97 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
       return;
     }
 
-    setExportingExcel(true); // Set loading state
+    // Set both ref and state IMMEDIATELY (synchronous) to prevent any subsequent calls
+    isExportingRef.current = true;
+    setExportingExcel(true);
+    
+    console.log('[EXPORT] Starting export...');
 
-    try {
-      const session = sessions.find(s => s.id === selectedSession);
-      
-      // Prepare data for Excel
-      const excelData = logs.map(log => ({
-        'Timestamp': formatIST(log.timestamp, 'yyyy-MM-dd HH:mm:ss'),
-        'Roll Category': session?.roll_category_name || 'N/A',
-        'Sub-Roll Name': session?.sub_roll_name || 'N/A',
-        'Roll ID': session?.roll_id || 'N/A',
-        'Number of Rolls': session?.number_of_rolls || 'N/A',
-        'Operator Name': session?.operator_name || 'N/A',
-        'Pressure (PSI)': log.pressure.toFixed(2),
-        'Temperature (°C)': log.temperature.toFixed(2),
-        'Valve Position (%)': log.valve_position?.toFixed(2) || 'N/A',
-        'Status': log.status.toUpperCase()
-      }));
+    // Use requestAnimationFrame to ensure this runs in the next frame, preventing any re-render issues
+    requestAnimationFrame(() => {
+      // Guard 3: Double-check ref again after frame (in case of rapid calls)
+      if (!isExportingRef.current) {
+        console.log('[EXPORT] Blocked: Ref was reset (should not happen)');
+        setExportingExcel(false);
+        return;
+      }
 
-      // Create worksheet
-      const ws = XLSX.utils.json_to_sheet(excelData);
-      
-      // Set column widths
-      ws['!cols'] = [
-        { wch: 20 }, // Timestamp
-        { wch: 25 }, // Roll Category
-        { wch: 25 }, // Sub-Roll Name
-        { wch: 15 }, // Roll ID
-        { wch: 15 }, // Number of Rolls
-        { wch: 18 }, // Operator Name
-        { wch: 15 }, // Pressure
-        { wch: 18 }, // Temperature
-        { wch: 18 }, // Valve Position
-        { wch: 12 }  // Status
-      ];
+      try {
+        const session = sessions.find(s => s.id === selectedSession);
+        
+        // Prepare data for Excel
+        const excelData = logs.map(log => ({
+          'Timestamp': formatIST(log.timestamp, 'yyyy-MM-dd HH:mm:ss'),
+          'Roll Category': session?.roll_category_name || 'N/A',
+          'Sub-Roll Name': session?.sub_roll_name || 'N/A',
+          'Roll ID': session?.roll_id || 'N/A',
+          'Number of Rolls': session?.number_of_rolls || 'N/A',
+          'Operator Name': session?.operator_name || 'N/A',
+          'Pressure (PSI)': log.pressure.toFixed(2),
+          'Temperature (°C)': log.temperature.toFixed(2),
+          'Valve Position (%)': log.valve_position?.toFixed(2) || 'N/A',
+          'Status': log.status.toUpperCase()
+        }));
 
-      // Create workbook
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, 'Process Data');
+        // Create worksheet
+        const ws = XLSX.utils.json_to_sheet(excelData);
+        
+        // Set column widths
+        ws['!cols'] = [
+          { wch: 20 }, // Timestamp
+          { wch: 25 }, // Roll Category
+          { wch: 25 }, // Sub-Roll Name
+          { wch: 15 }, // Roll ID
+          { wch: 15 }, // Number of Rolls
+          { wch: 18 }, // Operator Name
+          { wch: 15 }, // Pressure
+          { wch: 18 }, // Temperature
+          { wch: 18 }, // Valve Position
+          { wch: 12 }  // Status
+        ];
 
-      // Generate filename with timestamp
-      const sessionName = session?.sub_roll_name || session?.roll_category_name || 'Session';
-      const filename = `Process_${sessionName.replace(/\s+/g, '_')}_${format(new Date(), 'yyyyMMdd_HHmmss')}.xlsx`;
+        // Create workbook
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Process Data');
 
-      // Save file
-      XLSX.writeFile(wb, filename);
+        // Generate filename with timestamp (include milliseconds for uniqueness)
+        const sessionName = session?.sub_roll_name || session?.roll_category_name || 'Session';
+        const timestamp = format(new Date(), 'yyyyMMdd_HHmmss_SSS');
+        const filename = `Process_${sessionName.replace(/\s+/g, '_')}_${timestamp}.xlsx`;
 
-      toast({
-        title: "Export Successful",
-        description: `Downloaded ${filename}`,
-      });
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to export to Excel",
-        variant: "destructive",
-      });
-    } finally {
-      setExportingExcel(false); // Reset loading state
-    }
-  };
+        // Guard 4: Final check before file write
+        if (!isExportingRef.current) {
+          console.log('[EXPORT] Blocked: Ref reset before file write');
+          setExportingExcel(false);
+          return;
+        }
+
+        // Save file - this is the only place XLSX.writeFile should be called
+        console.log('[EXPORT] Writing file:', filename);
+        XLSX.writeFile(wb, filename);
+        console.log('[EXPORT] File written successfully');
+
+        toast({
+          title: "Export Successful",
+          description: `Downloaded ${filename}`,
+        });
+      } catch (error) {
+        console.error('[EXPORT] Error:', error);
+        toast({
+          title: "Error",
+          description: "Failed to export to Excel",
+          variant: "destructive",
+        });
+      } finally {
+        // Reset after a longer delay to absolutely prevent rapid re-exports
+        setTimeout(() => {
+          console.log('[EXPORT] Resetting export flag');
+          isExportingRef.current = false;
+          setExportingExcel(false);
+        }, 2000); // 2 second delay before allowing another export
+      }
+    });
+  }, [logs, sessions, selectedSession, exportingExcel, toast]);
 
   const exportToPDF = async () => {
     if (!selectedSession) {
@@ -509,12 +549,24 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
               <Button
                 size="lg"
                 variant="outline"
-                onClick={exportToExcel}
-                disabled={exportingExcel}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  // Use native event for stopImmediatePropagation
+                  if (e.nativeEvent) {
+                    e.nativeEvent.stopImmediatePropagation();
+                  }
+                  // Additional check before calling
+                  if (!isExportingRef.current && !exportingExcel) {
+                    exportToExcel();
+                  }
+                }}
+                disabled={exportingExcel || isExportingRef.current}
                 className="gap-2"
+                type="button" // Explicitly set type to prevent form submission
               >
                 <Download className="w-5 h-5" />
-                {exportingExcel ? 'Exporting...' : 'Export to Excel'}
+                {exportingExcel || isExportingRef.current ? 'Exporting...' : 'Export to Excel'}
               </Button>
               <Button
                 size="lg"
