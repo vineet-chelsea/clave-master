@@ -59,10 +59,11 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
   const [logs, setLogs] = useState<ProcessLog[]>([]);
   const [showChart, setShowChart] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [exportingExcel, setExportingExcel] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalSessions, setTotalSessions] = useState(0);
-  const [perPage] = useState(50); // Sessions per page
+  const [perPage] = useState(10); // Sessions per page
   const { toast } = useToast();
   const pressureChartRef = useRef<HTMLDivElement>(null);
   const temperatureChartRef = useRef<HTMLDivElement>(null);
@@ -74,32 +75,30 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
   const fetchSessions = async (page: number = 1) => {
     try {
       setLoading(true);
-      // Fetch all sessions by default (no pagination), or use pagination if explicitly requested
-      // For now, always fetch all sessions - pagination can be enabled later if needed
-      const url = `${API_URL}/sessions`;
+      // Use pagination parameters
+      const url = `${API_URL}/sessions?page=${page}&per_page=${perPage}`;
       const response = await fetch(url);
       const data = await response.json();
       
-      // Handle both old format (array) and new format (object with pagination)
+      // Handle paginated response
       let sessionsData: any[] = [];
       let paginationData = null;
       
-      if (Array.isArray(data)) {
-        // Old format - backward compatibility (all sessions)
-        sessionsData = data;
-        setTotalPages(1);
-        setTotalSessions(data.length);
-      } else if (data.sessions && data.pagination) {
+      if (data.sessions && data.pagination) {
         // New format with pagination
         sessionsData = data.sessions;
         paginationData = data.pagination;
         setTotalPages(paginationData.total_pages);
         setTotalSessions(paginationData.total);
-      } else {
-        // Fallback
-        sessionsData = Array.isArray(data) ? data : [];
+      } else if (Array.isArray(data)) {
+        // Fallback for old format
+        sessionsData = data;
         setTotalPages(1);
-        setTotalSessions(sessionsData.length);
+        setTotalSessions(data.length);
+      } else {
+        sessionsData = [];
+        setTotalPages(1);
+        setTotalSessions(0);
       }
       
       // Map API response to component interface
@@ -200,6 +199,11 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
   };
 
   const exportToExcel = () => {
+    // Prevent multiple clicks
+    if (exportingExcel) {
+      return;
+    }
+
     if (logs.length === 0) {
       toast({
         title: "No Data",
@@ -209,54 +213,66 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
       return;
     }
 
-    const session = sessions.find(s => s.id === selectedSession);
-    
-    // Prepare data for Excel
-    const excelData = logs.map(log => ({
-      'Timestamp': formatIST(log.timestamp, 'yyyy-MM-dd HH:mm:ss'),
-      'Roll Category': session?.roll_category_name || 'N/A',
-      'Sub-Roll Name': session?.sub_roll_name || 'N/A',
-      'Roll ID': session?.roll_id || 'N/A',
-      'Number of Rolls': session?.number_of_rolls || 'N/A',
-      'Operator Name': session?.operator_name || 'N/A',
-      'Pressure (PSI)': log.pressure.toFixed(2),
-      'Temperature (°C)': log.temperature.toFixed(2),
-      'Valve Position (%)': log.valve_position?.toFixed(2) || 'N/A',
-      'Status': log.status.toUpperCase()
-    }));
+    setExportingExcel(true); // Set loading state
 
-    // Create worksheet
-    const ws = XLSX.utils.json_to_sheet(excelData);
-    
-    // Set column widths
-    ws['!cols'] = [
-      { wch: 20 }, // Timestamp
-      { wch: 25 }, // Roll Category
-      { wch: 25 }, // Sub-Roll Name
-      { wch: 15 }, // Roll ID
-      { wch: 15 }, // Number of Rolls
-      { wch: 18 }, // Operator Name
-      { wch: 15 }, // Pressure
-      { wch: 18 }, // Temperature
-      { wch: 18 }, // Valve Position
-      { wch: 12 }  // Status
-    ];
+    try {
+      const session = sessions.find(s => s.id === selectedSession);
+      
+      // Prepare data for Excel
+      const excelData = logs.map(log => ({
+        'Timestamp': formatIST(log.timestamp, 'yyyy-MM-dd HH:mm:ss'),
+        'Roll Category': session?.roll_category_name || 'N/A',
+        'Sub-Roll Name': session?.sub_roll_name || 'N/A',
+        'Roll ID': session?.roll_id || 'N/A',
+        'Number of Rolls': session?.number_of_rolls || 'N/A',
+        'Operator Name': session?.operator_name || 'N/A',
+        'Pressure (PSI)': log.pressure.toFixed(2),
+        'Temperature (°C)': log.temperature.toFixed(2),
+        'Valve Position (%)': log.valve_position?.toFixed(2) || 'N/A',
+        'Status': log.status.toUpperCase()
+      }));
 
-    // Create workbook
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Process Data');
+      // Create worksheet
+      const ws = XLSX.utils.json_to_sheet(excelData);
+      
+      // Set column widths
+      ws['!cols'] = [
+        { wch: 20 }, // Timestamp
+        { wch: 25 }, // Roll Category
+        { wch: 25 }, // Sub-Roll Name
+        { wch: 15 }, // Roll ID
+        { wch: 15 }, // Number of Rolls
+        { wch: 18 }, // Operator Name
+        { wch: 15 }, // Pressure
+        { wch: 18 }, // Temperature
+        { wch: 18 }, // Valve Position
+        { wch: 12 }  // Status
+      ];
 
-    // Generate filename with timestamp
-    const sessionName = session?.sub_roll_name || session?.roll_category_name || 'Session';
-    const filename = `Process_${sessionName.replace(/\s+/g, '_')}_${format(new Date(), 'yyyyMMdd_HHmmss')}.xlsx`;
+      // Create workbook
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Process Data');
 
-    // Save file
-    XLSX.writeFile(wb, filename);
+      // Generate filename with timestamp
+      const sessionName = session?.sub_roll_name || session?.roll_category_name || 'Session';
+      const filename = `Process_${sessionName.replace(/\s+/g, '_')}_${format(new Date(), 'yyyyMMdd_HHmmss')}.xlsx`;
 
-    toast({
-      title: "Export Successful",
-      description: `Downloaded ${filename}`,
-    });
+      // Save file
+      XLSX.writeFile(wb, filename);
+
+      toast({
+        title: "Export Successful",
+        description: `Downloaded ${filename}`,
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to export to Excel",
+        variant: "destructive",
+      });
+    } finally {
+      setExportingExcel(false); // Reset loading state
+    }
   };
 
   const exportToPDF = async () => {
@@ -494,10 +510,11 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
                 size="lg"
                 variant="outline"
                 onClick={exportToExcel}
+                disabled={exportingExcel}
                 className="gap-2"
               >
                 <Download className="w-5 h-5" />
-                Export to Excel
+                {exportingExcel ? 'Exporting...' : 'Export to Excel'}
               </Button>
               <Button
                 size="lg"
