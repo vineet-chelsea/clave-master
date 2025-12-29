@@ -18,6 +18,10 @@ interface HistoricalDataProps {
 // IST timezone constant
 const IST_TIMEZONE = 'Asia/Kolkata';
 
+// Module-level export lock - persists across all component instances and re-renders
+let globalExportLock = false;
+let exportLockTimeout: NodeJS.Timeout | null = null;
+
 // Helper function to format date in IST
 const formatIST = (date: string | Date | null | undefined, formatStr: string) => {
   if (!date) return 'N/A';
@@ -199,11 +203,16 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
     }
   };
 
-  // Simple function - no useCallback to avoid any re-creation issues
+  // Export function with module-level lock
   const exportToExcel = () => {
-    // CRITICAL: Check ref FIRST - synchronous check
+    // CRITICAL: Check module-level lock FIRST (most important check)
+    if (globalExportLock) {
+      return; // Exit immediately - global lock is active
+    }
+
+    // Check ref (component-level check)
     if (isExportingRef.current) {
-      return; // Exit immediately if already exporting
+      return;
     }
 
     // Validate data
@@ -216,67 +225,83 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
       return;
     }
 
-    // Set ref IMMEDIATELY - synchronous, prevents any other calls
-    isExportingRef.current = true;
-    setExportingExcel(true);
+    // Set ALL locks IMMEDIATELY - synchronous, prevents any other calls
+    globalExportLock = true; // Module-level lock
+    isExportingRef.current = true; // Component-level ref
+    setExportingExcel(true); // Component-level state
 
-    // Execute immediately - no async, no delays, no callbacks
-    const session = sessions.find(s => s.id === selectedSession);
-    
-    // Prepare data for Excel
-    const excelData = logs.map(log => ({
-      'Timestamp': formatIST(log.timestamp, 'yyyy-MM-dd HH:mm:ss'),
-      'Roll Category': session?.roll_category_name || 'N/A',
-      'Sub-Roll Name': session?.sub_roll_name || 'N/A',
-      'Roll ID': session?.roll_id || 'N/A',
-      'Number of Rolls': session?.number_of_rolls || 'N/A',
-      'Operator Name': session?.operator_name || 'N/A',
-      'Pressure (PSI)': log.pressure.toFixed(2),
-      'Temperature (°C)': log.temperature.toFixed(2),
-      'Valve Position (%)': log.valve_position?.toFixed(2) || 'N/A',
-      'Status': log.status.toUpperCase()
-    }));
+    // Clear any existing timeout
+    if (exportLockTimeout) {
+      clearTimeout(exportLockTimeout);
+    }
 
-    // Create worksheet
-    const ws = XLSX.utils.json_to_sheet(excelData);
-    
-    // Set column widths
-    ws['!cols'] = [
-      { wch: 20 }, // Timestamp
-      { wch: 25 }, // Roll Category
-      { wch: 25 }, // Sub-Roll Name
-      { wch: 15 }, // Roll ID
-      { wch: 15 }, // Number of Rolls
-      { wch: 18 }, // Operator Name
-      { wch: 15 }, // Pressure
-      { wch: 18 }, // Temperature
-      { wch: 18 }, // Valve Position
-      { wch: 12 }  // Status
-    ];
+    try {
+      const session = sessions.find(s => s.id === selectedSession);
+      
+      // Prepare data for Excel
+      const excelData = logs.map(log => ({
+        'Timestamp': formatIST(log.timestamp, 'yyyy-MM-dd HH:mm:ss'),
+        'Roll Category': session?.roll_category_name || 'N/A',
+        'Sub-Roll Name': session?.sub_roll_name || 'N/A',
+        'Roll ID': session?.roll_id || 'N/A',
+        'Number of Rolls': session?.number_of_rolls || 'N/A',
+        'Operator Name': session?.operator_name || 'N/A',
+        'Pressure (PSI)': log.pressure.toFixed(2),
+        'Temperature (°C)': log.temperature.toFixed(2),
+        'Valve Position (%)': log.valve_position?.toFixed(2) || 'N/A',
+        'Status': log.status.toUpperCase()
+      }));
 
-    // Create workbook
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Process Data');
+      // Create worksheet
+      const ws = XLSX.utils.json_to_sheet(excelData);
+      
+      // Set column widths
+      ws['!cols'] = [
+        { wch: 20 }, // Timestamp
+        { wch: 25 }, // Roll Category
+        { wch: 25 }, // Sub-Roll Name
+        { wch: 15 }, // Roll ID
+        { wch: 15 }, // Number of Rolls
+        { wch: 18 }, // Operator Name
+        { wch: 15 }, // Pressure
+        { wch: 18 }, // Temperature
+        { wch: 18 }, // Valve Position
+        { wch: 12 }  // Status
+      ];
 
-    // Generate filename with timestamp
-    const sessionName = session?.sub_roll_name || session?.roll_category_name || 'Session';
-    const timestamp = format(new Date(), 'yyyyMMdd_HHmmss_SSS');
-    const filename = `Process_${sessionName.replace(/\s+/g, '_')}_${timestamp}.xlsx`;
+      // Create workbook
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Process Data');
 
-    // Write file - this should only happen once
-    XLSX.writeFile(wb, filename);
+      // Generate filename with timestamp
+      const sessionName = session?.sub_roll_name || session?.roll_category_name || 'Session';
+      const timestamp = format(new Date(), 'yyyyMMdd_HHmmss_SSS');
+      const filename = `Process_${sessionName.replace(/\s+/g, '_')}_${timestamp}.xlsx`;
 
-    // Show toast
-    toast({
-      title: "Export Successful",
-      description: `Downloaded ${filename}`,
-    });
+      // Write file - ONLY ONCE
+      XLSX.writeFile(wb, filename);
 
-    // Reset after delay - use setTimeout in finally-like pattern
-    setTimeout(() => {
-      isExportingRef.current = false;
-      setExportingExcel(false);
-    }, 5000); // 5 second delay to absolutely prevent re-exports
+      // Show toast
+      toast({
+        title: "Export Successful",
+        description: `Downloaded ${filename}`,
+      });
+    } catch (error) {
+      console.error('[EXPORT] Error:', error);
+      toast({
+        title: "Error",
+        description: "Failed to export to Excel",
+        variant: "destructive",
+      });
+    } finally {
+      // Reset ALL locks after delay
+      exportLockTimeout = setTimeout(() => {
+        globalExportLock = false;
+        isExportingRef.current = false;
+        setExportingExcel(false);
+        exportLockTimeout = null;
+      }, 10000); // 10 second delay - very conservative
+    }
   };
 
   const exportToPDF = async () => {
@@ -516,18 +541,18 @@ export const HistoricalData = ({ onBack }: HistoricalDataProps) => {
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  // Critical: Check ref BEFORE calling function
-                  if (isExportingRef.current) {
-                    return; // Exit immediately if already exporting
+                  // Critical: Check global lock FIRST
+                  if (globalExportLock || isExportingRef.current || exportingExcel) {
+                    return; // Exit immediately if any lock is active
                   }
                   exportToExcel();
                 }}
-                disabled={exportingExcel || isExportingRef.current}
+                disabled={exportingExcel || isExportingRef.current || globalExportLock}
                 className="gap-2"
                 type="button"
               >
                 <Download className="w-5 h-5" />
-                {exportingExcel || isExportingRef.current ? 'Exporting...' : 'Export to Excel'}
+                {exportingExcel || isExportingRef.current || globalExportLock ? 'Exporting...' : 'Export to Excel'}
               </Button>
               <Button
                 size="lg"
